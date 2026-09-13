@@ -1,0 +1,288 @@
+---------------------------------------------------------------------------------------VLANS-----------------------------------------------------------------------------------------
+LAN Topology Design:
+	1) 3 Layer Design:
+		> Efficient for handling North-South traffic <= heavier bottom-layer to top-layer traffic <= heavier internal<->external (end-user<->router) traffic
+		> Network topoplogy should be designed for scalability, performance, & security
+		> Each layer has it own design priciples and characteristics
+		> Network topology split in 3 layers:
+			1) Access Layer:
+				> Bottom layer:
+					> Connects end-hosts
+					> Bottom layer for each building
+					> Simple switches => Highport count but low bandwidth support
+				> Purpose: High port count at affordable price <= connects end-hosts
+				> Redundancy: No redundant connection to end-hosts since mosts only have 1 nic anyway
+				> Additional feature: Client access security measures are enabled at access layer
+			2) Distribution Layer:
+				> Middle layer:
+					> Each access layer uplinks to a pair of dirtibution switches
+					> Upgraded switches => Higher bandwidth support but less port count => Heavier support for traffic flowing b/w router & end-users
+					> Top layer for each building
+				> Purpose: Aggragation point for access layer, provides scalability
+				> Redundancy: Deployed in redundant pairs
+				> Additional feature: Most software policies such as QOS enabled at distribution layer
+			3) Core Layer:
+				> Top layer:
+					> Each distribution layer uplinks to a pair core switches
+					> Upgraded switches => Higher bandwidth support but less port count => Heavier support for traffic flowing b/w router & end-users
+					> Top layer for entire network topology | Connects the top layer of each building into a single top layer
+					> Core switch pair uplinks to a WAN edge router pair
+				> Purpose: Designed for speed and resilliency
+				> Redundancy: Deployed in redundant pairs
+				> Addition feature: NO software policies enabled <= software policies slow down a switch
+		> Smaller LAN topology uses collapsed core+distribution layer => distribution & core layer functions performed on same switch
+	2) Spine-Leaf Data Center Design:
+		> Efficient for handling East-West traffic: <= heavier bottom-layer to bottom-layer traffic <= heavier internal<->internal (end-user<->end-user) traffic
+		> eg. app split across multiple servers
+		> LAN topology split into 2 tiers:
+			1) Tier1/Leaf:
+				> Bottom layer => Connects end-users => Similar to Access-layer
+			2) Tier2/Spine:
+				> Top layer => Aggregates the bottom layer => Allows traffic flow b/w end-users => Similar to Core-Distribution-layer
+				> Instead of single switch pair, multiple spine switches are put for increases end-user bandwidth
+		> Difference:
+			> Spine-Leaf Design: Structured for horizaontal scalability => Higher end-user bandwidth => Supports heavier end-user<->end-user traffic
+			> 3 layer Design: Scructured for vertical scalability => Higher uplinking bandwidth => Supports heavier router<->end-user traffic
+
+VLANS:
+	> Router Operations: Splits network into separate domains at layer 3 => Improved performace and security
+		> Host in different IP subnets must send traffic via router to communicate
+		> Security rules can be applied on router/firewall to allow only selected traffic b/w different IP subnets
+		> Routers do not forward broadcast traffic
+	> Switch Operations: Do NOT split network into separate domains at layer 2 => No performance and security
+		> No security control on traffic b/w hosts
+		> Switches DO forward broadcast traffic by default (even across different IP subnets)
+	> VLANs (Virtual Local Area Networks):
+		> Segment the LAN into separate broadcast domains at layer 2 => Increased perfomance and security
+		> Typically 1-to-1 relationship b/w an IP subnet & a VLAN => A router is required to be connected to the switch for inter-VLAN communication
+		> All switch interfaces are by default configured in VLAN 1 (default) => Single broadcast domain
+	> Types of switch-ports:
+		1) Access Ports:
+			> Configured on interfaces where end-hosts are plugged in
+			> Access ports are configured with 1 specific vlan
+			> Access ports handle traffic for only that vlan with which they are configured
+			> Port configuration is all on the switch, end-hosts are not vlan aware
+		2) Trunk Ports:
+			> Inter-switch linking interfaces are configured as trunk ports
+			> Handle traffic for multiple/all allowed vlans
+			> Allows for connectivity within a vlan across multiple switches
+			> Dot1Q Tagging through Dot1Q/802.1Q trunking protocol:
+				1) When a frame leaves a trunk port, a tag specifying the vlan no the frame belongs to, is added to the frame header
+				2) On the recieving switch, the dot1q tag is removed from the frame header, and the frame is marked for the specified vlan
+				3) Frame is forwarded out access ports belonging to the specified vlan (without dot1q tag), & all trunk ports (with dot1q tag reattached)
+			> Native Vlan:
+				> Any untagged traffic recieved on a trunk port is put in the native vlan
+				> Default native vlan: Vlan 1
+				> For security native vlan is recommended be changed to an unused vlan
+				> Native vlans must match on both sides of the trunking link for trunk ports to come up
+			> Allowed Vlans:
+				> An allowed vlans list can be configured on a trunk port => Limits traffic passing thru the trunk port to only specified vlans => Better security
+				> Traffic for any other vlan would not be allowed to pass through the trunk port
+			> DTP (Dynamic Trunking Protocol):
+				> If 2 cisco switches are linked, they can automatically negotiate a trunk connection using cisco's DTP
+				> Manual config is recommended over using DTP for configuring a trunk connection
+				> DTP Config:
+					1) auto
+						> cmd: switchport mode dynamic auto
+						> forms trunk if port on other side is set to trunk or desirable
+						> trunk is not fromed if both sides set to auto
+						> default on newer switches
+					2) desirable:
+						> cmd: switchport mode dynamic desirable
+						> will from trunk is opposite port is set to trunk, desirable, or auto
+						> default on older switches
+					3) no negotiate:
+						> cmd: switchport nonegotiate
+						> disables DTP
+			> VTP (VLAN Trunking Protocol):
+				> Allows to synchronize the VLAN database across switches in the same VTP domain
+				> Allows to add/edit/delete VLANs on switches configured as VTP Servers and have switches configured as VTP Clients automatically sync their VLAN db
+				> VTP domain name must match on neighbour switches for trunks to be negotiated by DTP
+				> VTP Modes:
+					1) VTP Server:
+						> Can add/edit/delete VLANs
+						> Synchronizes it VLAN db from another VTP server with a higher revision number
+					2) VTP Client:
+						> Cannot add/edit/delete VLANs
+						> Synchronizes it VLAN db from the VTP server with the highest revision number
+					3) VTP Transparent: 
+						> Does not participate in the VTP Domain
+						> Does not advertise or learn VLAN info but passes it on
+						> Can add/edit/delete VLANs in its local VLAN database
+
+
+	Switch with multiple VLANs:
+
+			External View			Internal View
+			    S				    S
+			_________		_________________________
+		vlan1___|	|		|			|
+		user1	|	|		|	S1	S2	|	1. Users in separate vlans remain isolated from each other
+			|_______|		|	|	|	|	2. Users in same vlan remain in same LAN
+		       /    |	\		|     vlan1   vlan2	|
+		  vlan2	 vlan1	vlan2		|     users   users	|
+		  user2	 user2	user2		|_______________________|
+
+
+
+
+
+
+
+Inter-VLAN Routing:
+	> End-users in different VLANs are logically in different LANs => Differnt networks => Router is required for inter-vlan communication
+	1) Router with sepearate interfaces:
+		> Router has an interface in each VLAN as that VLAN's default gateway
+		> Advantages/Disadvantages:
+			> Requires an interface for each VLAN => Low Scalability
+			> Traffic has to go up-down physical ethernet cables => Slow
+	2) Router on a stick:
+		> Single interface on router and switch is used for all VLANs
+		> At the switch, interface is set as a trunk port
+		> At the router, interface is split into multiple virtual sub-interfaces, each marked for a VLAN
+		> Process:
+			> When an end-host sends a frame for its default gateway, frame is sent out the trunk port to the router along with the dot1q tag
+			> At router, vlan from dot1q tag is matched against vlans marked on virtual sub-interfaces, frame is made to hit the corresponding virtual sub-interface
+		> Advantages/Disadvantages:
+			> Less number of router interfaces required => Higher Scalability
+			> Traffic has to go up-down single physical ethernet cable => Slow & Higher bandwidth contention
+	3) Layer 3 switch:
+		> Layer 3 switch: router + switch: an interface is switchport (default), can be configured to routerport => External router
+		1) Routing is enabled on the switch -> #ip routing
+		2) SVIs (Switched Virtual Interfaces):
+			> Virtual interfaces configured on a Layer 3 switch -> #interface vlan 10 // creates a virtual interface, routerport, default gateway for vlan 10
+			> Routerports (IP address set on interfaces) // add ip address on SVI
+			> Each linked to specific vlan (1-1 relation)
+			> Serve as default gateways for respective vlans
+			> No manual route configuration required by admin <= all VLANs accessible through connected routes
+		4) For routing out of layer 3 switch (eg. to a WAN edge router for external connectivity):
+			> Any interface on a layer 3 switch is, by default, switchport, can be configured to a routerport -> #no switchport
+			> Add ip address on interface
+			> Add a dafult route on layer 3 switch
+
+			
+		Layer 3 Switch:
+
+		External View		  Internal View
+		   S		________________S________________
+		_________	|      				|
+	vlan1___|	|	|	       ExR2		|
+	user1	|	|	|     ExR1  ___ | ___  ExR3	|	1. External routers are connected to R via physical interfaces of layer 3 switch configured as routerports
+		|_______|	|	   	R		|	
+	       /    |  |\	|	     /	|  \		| 
+	  vlan2	 vlan1 |vlan2	|	  S1    S2   S3		|	2. Vlans are connected to R via corresponding SVIs
+	  user2	 user2 |user2	|     	 /	|      \	|
+		       |	|   vlan1     vlan2    vlan3	|
+		      ExR	|   users     users    users	|
+				|_______________________________|
+
+
+-------------------------------------------------------------------------------------VLANS_LAB---------------------------------------------------------------------------------------
+Config Vlan
+	SW1(config)#vlan <vlanNo>
+	SW1(config-vlan)#name <anyName>						// optionally name identification
+
+Config Access Port
+	SW1(config-if)#switchport mode access					// config interface as access port
+	SW1(config-if)#switchport access vlan <vlanNo>				// config access port to vlan vlanNo
+
+Verification Vlan
+	1. SW1#show vlan brief							// global vlan details
+	2. SW1#show interface <intfNo> switchport				// switchport & vlan details for specific interface
+
+Config Trunk Ports
+	SW1(config-if)#switchport trunk encapsulation dot1q			// set trunking protocol to dot1q from ISL (cisco proprietary, obsolete) before config as trunk port
+	SW1(config-if)#switchport mode trunk					// set interface to trunk port
+
+Config Native Vlan
+	SW1(config)#vlan <anyUnusedVlanNoEg199>					// native vlan must match on both sides of link for trunk link to come up
+	SW1(config-vlan)#name Native
+	SW1(config-vlan)#end
+	SW1(config)#interface FastEthernet 0/0
+	SW1(config-if)#switchport trunk encapsulation dot1q
+	SW1(config-if)#switchport mode trunk
+	SW1(config-if)#switchport trunk native vlan <vlanNo>
+
+Config Allowed Vlans List on Trunk Port
+	SW1(config-if)#switchport trunk allowed vlan 10,30,40			// limits traffic to only the mentioned vlans
+
+Config DTP
+	SW1(config-if)#switchport mode dynamic <desirable|auto>			// config switchport using DTP
+				OR
+	SW1(config-if)#switchport nonegotiate					// disable DTP
+
+Config VTP
+	SW1(config)#vtp domain <domainName>					// set vtp domain on switch
+	SW1(config)#vtp mode <server|client|transparent>			// set vtp mode for switch
+	SW1(config)#vlan 20							// configure vlans (for vtp servers and vtp transparents)
+	SW1(config-vlan)#name sales
+
+Verification VTP
+	1. SW1#show vtp status							// show vtp status for the switch
+
+Inter-VLAN Routing
+	1. Router with separate interfaces
+		// configure interfaces on router
+		R1(config)#int f0/1
+		R1(config-if)#ip addr 10.0.10.1 255.255.255.0
+		R1(config-if)# no shut
+		R1(config-if)#int f0/2
+		R1(config-if)#ip addr 10.0.20.1 255.255.255.0
+		R1(config-if)#no shut
+		R1(config-if)#end
+		R1(config)#ip route 0.0.0.0 0.0.0.0 203.0.113.2
+
+		// configure vlans on switch
+		SW1(config)#vlan 10
+		SW1(config-vlan)#name Eng
+		SW1(config-vlan)#vlan 20
+		SW1(config-vlan)#name Sales
+		SW1(config)#end
+
+		// add interfaces to vlans
+		SW1(config)#int f0/1
+		SW1(config-if)#switchport mode access
+		SW1(config-if)#switchport access vlan 10
+		SW1(config-if)#int f0/2
+		SW1(config-if)#switchport mode access
+		SW1(config-if)#switchport access vlan 20
+
+	2. Router on a stick:
+		R1(config)#int f0/1
+		R1(config-if)#no ip addr					// remove any ip address previously set on physical interface
+		R1(config-if)#no shut
+		R1(config-if)#int f0/1.10					// virtual sub-interface FastEthernet 0/1.10
+		R1(config-if)#encap dot1q 10					// frame with dot1q tag as 10 should hit this virtual sub-interface
+		R1(config-if)#ip addr 10.0.10.1 255.255.255.0			// set ip address on sub-interface
+		R1(config-if)#end
+		R1(config)#int f0/1.20						// virtual sub-interface FastEthernet 0/1.20
+		R1(config-if)#encap dot1q 20					// frame with dot1q tag as 20 should hit this virtual sub-interface
+		R1(config-if)#ip addr 10.0.20.1 255.255.255.0			// add ip address on sub-interface
+		R1(config-if)#end
+		R1(config)#ip route 0.0.0.0 0.0.0.0 203.0.113.2			// deafult static route for external WAN connectivity
+
+		SW1(config)#vlan 199
+		SW1(config-vlan)#name native
+		SW1(config-vlan)#end
+		SW1(config)#int f0/1
+		SW1(config-if)#switchport trunk encap dot1q
+		SW1(config-if)#switchport mode trunk				// set port to router as trunk
+		SW1(config-if)#switchport trunk native vlan 199
+
+	3. Layer 3 switch:
+		// configure SVIs
+		SW1(config)#ip routing						// enable ip routing
+		SW1(config)#interface vlan 10					// create an SVI for vlan 10
+		SW1(config-if)#ip address 10.0.10.1 255.255.255.0		// add ip address on SVI, default gateway for vlan 10
+		SW1(config-if)#no shut
+		SW1(config)#interface vlan 20					// create SVI for vlan 20
+		SW1(config-if)#ip address 10.0.20.1 255.255.255.0		// add ip address on SVI, default gateway for vlan 20
+		SW1(config-if)#no shut
+
+		// configure interface as routerport for external WAN connectivity
+		SW1(config)#int f0/1						// interface connecting the WAN edge router
+		SW1(config-if)#no switchport					// config port as layer 3 port
+		SW1(config-if)#ip address 10.0.100.1 255.255.255.0		// add ip address on port
+		SW1(config-if)#no shut
+		SW1(config-if)#end
+		SW1(config)#ip route 0.0.0.0 0.0.0.0 10.0.100.2			// add default static route on switch

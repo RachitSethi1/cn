@@ -1,0 +1,450 @@
+-------------------------------------------------------------------------------------ROUTING-----------------------------------------------------------------------------------------
+Router
+	> Layer 3 device
+	> Separate IP address on each interface connected to a network
+	> 2 functions:
+		1) Prepare routing table/Determine best path to available networks - Through Routing Protocol + Statically configured routes by Admin
+		2) Forward traffic to networks according to routing table - Automatic
+
+Routing Table
+	> Contains best route(s) to each known network+prefix
+
+Route
+	> Format: DestinationNetworkIP DestinationNetworkMask NextHopRouterIP
+	> Types:
+		(For networks directly connected to the router:)
+		1) Connected
+			> Route to a directly connected network
+			> Automatically added to routing table when an ip address is configured on an interface of the router
+		2) Local
+			> Accompanies a connected route, automatically added when a connected route is added to routing table
+			> Has a /32 mask, only to shows the ip address configured on the interface
+		(For destinations not directly connected to the router, routes stating the nextHopRouterIP address are required:)
+		3) Static
+			> Statically configured by an administrator
+			> If no dynamic routes, then all routers in topology should have static routes to all networks, for end-to-end connectivity
+			> Summarization:
+				> Multiple static routes having the same nextHopIP can be combined to a single static route with a broader network mask
+				> Reduces memory usage on routers
+			> Longest Prefix Match:
+				> In a packet transfer, if multiple static routes are matched, one with more precise mask is used
+			> Load Balancing:
+				> In a packet transfer, if multiple static routes with equal precise mask are matched, then traffic will be load balanced across matched routes
+				> In load balancing, traffic for a signle flow will always go over the same path, to avoid packets reaching out of order
+			> Default Route/Gateway of Last Resort
+				> A static route to which all unmatched traffic matches, eg. ip route 0.0.0.0 0.0.0.0 203.0.113.2
+				> Least prefered since least precise subnet mask, so catches only the unmatched traffic 
+		4) Dynamic
+			> Dynamically learned through a routing protocol
+				> Routers automatically advertise their best path for known networks to each other
+				> Routers then use this information to determine their own best paths to the known networks => Routing table is prepared
+				> If the network changes, routers update each other, calculate new best path, and update their routing table
+			> Summary routes are automatically used, to save memory, and cpu cycles spent in calculating a new path if a link goes down
+			> Types (Breif):
+				1) IGPs (Interior Gateway Protocols) - for routing within organisation
+					1) Distance Vector Routing Protocol:
+						> Routers share routing tables with immediate neighbours only => Routers have only limited/localised view
+						> Each router sends its directly connected neighbours a list of all its known networks along with its own distance to each network
+						> FASTER but LESS ACCURATE
+						1) RIP (Routing Information Protocol)
+							Easiest, but low scalability
+						2) EIGRP (Enhanced Interior Gateway Routing Protocol)
+							Easy & quick, but Cisco propreitry
+					2) Link State Routing Protocol:
+						> Floods the "state" of all links to all other links in topology to build a consistent network map across all routers
+						> Each link shares info to its directly connected links => Info is passed on unchnged => Each link learns the actual network topology
+						> SLOWER but MORE ACCURATE
+						1) OSPF (Open Shortest Path First)
+							Open source, most common
+						2) IS-IS (Intermediate System - Intermediate System)
+							Used in service providers and MPLS networks
+				2) EGPs (Exterior Gateway Protocols) - for routing outside organisation, over internet
+					> Path Vector
+						1) BGP (Border Gateway Protocol)
+			> Metric:
+				> In routing protocols, each path from origin to destination is assigned a metric value based a certain attribute (hops or bandwidth) of that path
+				> Different IGPs calculate the metric in different way
+				> Each router gets advertised with metrics of paths to all accessible networks in the topology by its directly connected neighbours
+				> For each advertised route, it adds the corresponding metric b/w the advertisor router and itself to the advertised route to build the final metric
+				> Then, for each destination, the route with the lowest metric makes it into the routing table for the router
+				> Other, non-best routes, go into their respective rouitng protocol db
+				> If best path to a destination goes down, it'll be removed from routing table, routes to that destination across all DBs will be compared, 
+				1) RIP - Hop Count (No. of routers on way from origin to destination)
+					> For a destination, the path with least hops is most preffered
+					> Max. hops = 15, destinations with >15 hops are marked unreachable => RIP feasible only in test/small environments
+					> Each router advertises, to its directly connected neighbours, the no. of hops each network in topology is away from it
+					> A router upon recieving this info, adds 1 hop to each route's metric, to calculate the final metrics for all recieved routes
+					> For each destination, the route with the lowest hop count makes it into the routing table
+				2) OSPF - Cost (for all routers in path from origin to destination, SUM(Reference Bandwidth/Exit Interface Bandwidth))
+					> Manually configuring interface bandwidth => manupulating link cost => manupulating path
+				3) IS-IS - Cost (By default, cost is derived from hop count, not from interface bandwidth, can be explicitly configured)
+				4) EIGRP - Cost (Derived from interface bandwidth and delay of links)
+				> Load Balancing:
+					> Multi routes to same destintion have eq metrics, all routes make it to routing table, router load-balances outbound traffic to destination
+					> Only EIGRP is capable of Unequal Cost Multi Path Load Balancing
+			> Administrative Distance:
+				> If paths to same destination are recieved from different routing protocols, their metrics cannot be compared
+				> AD is used to compare routes recieved from different protocols
+				> Each protocol has an AD (preferrence over other protocols)
+				> Lower AD is preferred
+				> AD can be manually changed for a route
+				> Default AD:
+					1) Connected Routes - 0
+					2) Static Routes - 1
+					3) BGP - 20
+					4) EIGRP - 90
+					5) OSPF - 110
+					6) IS-IS - 115
+					7) RIP - 120
+			> Route Precedence:
+				> If router running multiple routing protocols learns multiple routes to same NETWORK+PREFIX, deciding order:
+					1st) Least AD
+					2nd) Least metric
+				  For each NETWORK+PREFIX, best route put in routing table (if multi. best, all put in table for LB), others put in respective routing DBs as backups
+				> Hence, routing table stores best route(s) for each NETWORK+PREFIX
+				  In packet forwarding, if destiantion IP mathces multiple NETWORK+PREFIX in routing table, route with longest/most specific prefix is used
+			> Floating Static Routes:
+				> Static routes with manually configured AD, as static backup routes (manual AD >=0)
+			> Loopback Interfaces:
+				> Best practice to assign 1 loopback interface to router (for ID) (single is used for multiple puposes, multiple possible but not required)
+				> Logical Interfaces => Cant go down
+				> Logical Interfaces => Cannot physically be in same network as other devices => /32 subnet mask
+				> Used for traffic terminating on the router itself (management traffic, VoIP, BGP peering) & as Router ID in OSPF
+				> Access router via lb int, for router management (since physical int could go down anytime, loopback can never) => router always accessible
+				> This provides redunduncy if there are multiple routes to the router
+			> Passive Interfaces:
+				> How routers share info through routing protocols:
+					1) IGPs are globally configured, but enabled on individual interfaces on a router (thru the use of 'network' cmd during protocol config)
+					2) > IGP config: R1(config-router)#network <networkID> <wildcardMask>
+					   > network cmd: routing protocol will be enabled on all interfaces of R1 with IPs falling in specified network range
+					   > wildcardMask = 255.255.255.255 - subnetMask
+					3) If routing protocol is enabled on an interface, it looks for other device on the link for also running the routing protocol
+					4) It does that by sending out and listening for hello packets
+					5) If a matching peer is found, an adjecency is formed
+					6) Routers then exchnage routing information
+				> Configuring an interface as PASSIVE for a routing protocol, allows it to only recieve routing info, but not send routing info out the interface
+				> Used for security purpose, when interface is connected to external network => recieves external rouitng info, but doesnt share internal info
+				> Best practice to configure loopback interfaces as passive interfaces
+			> Types (Detailed):
+				1) RIP:
+					> Distance Vector Routing Protocol
+					> Metric: Hop Count (max. 15) => small/test environments only
+					> Network cmd doesn't allow wildcard mask during config (only classful network IP allowed)
+					> Auto-summarisation of routes to classful bounds (undesirable) (can be turned off), manual-summarisation of routes possible
+					> Default route injection possible
+					> RIPv2 > RIPv1(legacy) -> supports VSLM, uses multicast, supports authentication
+				2) EIGRP:
+					> Distance Vector Routing Protocol
+					> Supports large networks, fast convergence time, multicast updates
+					> Supports EQMP LB for upto 4 paths (can be incrreased to 32), UEQMP LB configurable
+					> Network cmd allows wildcard mask (if no wildcard mask specified, defaults to class boundary)
+					> No auto-summarisation by default
+					> Autonomus System no.:
+						> Multiple eigrp configs can exist in single env
+						> Each eigrp config has an AS no. (specified during config)
+						> Routers with eigrp configs with same AS no. peer with each other
+						> AS no. helps in domain splitting in single env
+					> EIGRP Router Id:
+						> An IP address used to identify router in eigrp protocol
+						> EIGRP Router Id = Highest Loopback Interface IP (if no loopback, Highest Interface IP)
+						> Can be maually configured
+				3) OSPF:
+					> Link State Routing Protocol: Floods the "state" of all links to all others in topology to build a consistent network map across all links
+					> Supports large network, fast convergence, multicast updates, open standard, uses Dijkstra's SPF algo for finding best/shortest path
+					> OSPF Operations:
+						1) Discover neighbour
+						2) Form Adjecency with neighbour
+						3) Flood Link State Database (LSDB)
+						4) Compute Stortest Path
+						5) Install best route in routing table
+						6) Respond to network changes
+					> OSPF Packet types:
+						1) Hello: router sends & listens for hello packets on an ospf enabled interface, & forms adjecencies w other routers on the link
+						2) DBD (DB Descriptor): Adjecent routers share summary of their LSDB
+						3) LSR (Link State Request): If a router is missing info about any of the networks in the recieved DBD, it send its neighbour an LSR
+						4) LSA (Link State Advertisement): A routing update, Not a packet type, Contained inside an LSU
+						5) LSU (Link State Update): Contains a list of LSAs that should be updated, used during flooding
+						6) LSAck (Link State Acknowledgement): Sent to acknowledge an LSA
+					> Network cmd mandates using a wildcard mask (no default to class boundary)
+					> No auto-summarisation by default, summarisation set through areas
+					> Process Id:
+						> Multiple Instances of OSPF, each with a different PID, can be configured on a router
+						> Different instances of OSPF have differnt Link State Databases
+						> Different interfaces on a router can run in different instances of OSPF => DOMAIN SPLITTING
+						> PID is locally significant to a router => PID doesnt have to match on neighbour to form adjecency
+					> OSPF Router Id:
+						> An IP address used to identify router in ospf protocol
+						> OSPF Router Id = Highest Loopback Interface IP (if no loopback, Highest Interface IP)
+						> Can be manually configured
+					> OSPF Areas:
+						> Link State Protocol: Every link in network learns about every other link => SLOW & HIGH RESOURCE USAGE on each reconvergence
+						> OSPF's Heirarchical Design: large netwok segmented into smaller areas
+							> Each link has info for all routes within own area
+							> Each link has info for only summarised routes outside own area (=> saves resources and time on reconvergence)
+						> OSPF Heirarchy:
+							1) For small networks: all routers in area 0
+							2) For large networks: 2 level Heirarchichy:
+								1) Transit Area (backbone area/area 0):
+									> Top of heirarchichy | All traffic transits through transit area | Does not contain end-users
+								2) Regular Areas (non-backbone areas):
+									> Used to connect end-users to the transit area
+						> The area is configured at the interface level with the "network" cmd: R1(config-router)#network 10.0.0.0 0.0.255.255 area 0
+						> Area number must match on 2 neighbours for both to in same area
+						> Routers need to be in the same area to achieve full adjecency
+						> Types of Routers in OSPF:
+							1) Backbone Routers:
+								> Routers in backbone area
+								> Form full adjecency with other backbone routers
+								> Maintain full LSDB about all oruters in backbone area
+							2) ABRs (Area Border Routers):
+								> Routers that have interfaces in different areas (ideally, only 2 areas (Transit & Other), max.3 areas)
+								> Functions:
+									> They separate LSA flooding zones
+									> They become the primary point of address summarisation
+									> They function as the source of default routes
+									> They maintain the LSDB for each area they are connected to
+								> Route Summarisation:
+									> ABRs don't automatically summarise routes => unsummarised routes flooded outside areas as well
+									> Manual Summarisation to be configured at ABRs
+									> At router-protocol config, specify the network range for each area (similar to network cmd)
+										R1(config-router)#area 0 10.1.0.0 255.255.0.0
+									> A route to another area is shown as O IA (OSPF Inter-Area Route) in the routing table
+							3) Normal Internal Routers:
+								> Router with all its interfaces in a normal area
+								> Maintain a full LSDB of all routers in own area
+								> Learn the inter-area routes to other areas through their ABRs
+							4) ASBRs (Autonomous System Boundary Routers):
+								> At OSPF System Border
+								> Redistributes routes from another source (static or other routing protocol) into OSPF
+								> Routes redistributed into OSPF show as O E2 (OSPF External Type 2 Routes) in the routing table
+					> OSPF Areas Summary:
+						> In single area network:
+							> Routers learn paths to each destiantion => least cost path to ech destination goes into the routing table
+						> In multiple area network:
+							> Routers learn paths to each destination in own area => least cost path to each destination in RT
+							> Routers learn summary paths to each outside area (going via an ABR) => least cost path to each outside area in RT
+					> Speed vs ClockRate vs Bandwidth:
+						1) Speed:
+							> Speed: The rate at which ethernet interfaces PHYSICALLY tramsit
+							> Cmd: R1(config-if)#speed <megabits/s>
+							> Default: FastEthernet=100megabits/s | GigabitEthernet=1000megabits/s
+							> Must match on both side of the link for link to be up
+						2) ClockRate:
+							> ClockRate: The rate at which serial interfaces PHYSICALLY transmit
+							> Cmd: R1(config-if)#clock rate <kilobits/s>
+							> Default: SerialInterfaces=1.544mbps
+							> Must match on both side of the link for link to be up
+						3) Bandwidth:
+							> Bandwidth: A software reference to the speed/clockrate of an interface
+							> Used by software policies for cost calculation of a path by routing protocols, & QOS policy
+							> Ideally & Default, Interface Bandwidth = Interface Speed/Clockrate
+							> 'bandwidth' cmd => manupulate software policy => change cost of a path in OSPF
+							> Cmd: R1(config-if)#bandwidth <megabits/s>
+							> Differnet bandwidth on end of link => asymmetric application of software policy 
+					> OSPF Cost Metric Calculation:
+						> Shortest Path First Algorithm:
+							> SPF: Used to calculates total cost of each path to each destination
+							> Total Cost = Cumulative cost of all outgoing interfaces
+						> Cost Metric:
+							> Automatically derived from INTERFACE BANDWIDTH
+							> Cost = ceil(Reference Bandwidth/Outgoing Interface Bandwidth)
+							> Reference Bandwidth:
+								> Default: 100 mbps => Cost of all interfaces faster than 100mbps=1 => undesirable => manually set ref bandwidth
+								> Eg: Cost_FE=100/100=1 | Cost_T1=100/1.544=64
+								> Manual Set Ref Bandwidth: at router config level -> auto-cost refernce-bandwidth <mbps>
+									> Reference bandwidth must be changed on all routers
+						> Manupulating OSPF Path <= Manupulating OSPF Path Cost <= 2 ways:
+							> Manually Changing Interface OSPF Cost (recommended)
+							> Manually Changing Interface Bandwidth (affects other software policies eg. QOS)
+						> Different interface costs on ends of the link => asymmetric routing
+					> OSPF Packet:
+						> OSPF Packet Header: IP/Layer3 header of any packet has protocol field (8 bits) - OSPF:89 TCP:6 UDP:17 (most common tcp & udp)
+						> OSPF Packet Data:
+							> Version: OSPFv2 or OSPFv3
+							> Type: 1-Hello 2-DBD 3-LSR 4-LSU 5-LSAck
+							> Router Id (of advertising router)
+							> Area Id (of interface of advertising router)
+							> Checksum (for corruption check)
+							> Authentication Type: 0-No 1-PlainText 2-MD5
+							> Authentication
+							> Data: Payload data according to type
+						> OSPF Hello Packet:
+							> Routers discover each other & form adjececny via hello packets
+							> Routers send hello packets out each ospf enabled interface (except passive interfaces)
+							> Multicast to 224.0.0.5 ('all ospf routers')
+							> Sent every 10s (default)
+							> OSPF Hello Packet Data Data:
+								> Router Id (32 bit)
+								> Hello Interval: Frequency of sending hello packet (default: 10s)
+								> Dead Interval: how long the neighbours should wait before declaring it as down (default: 4xHelloInterval)
+								> Neighbours: List of adjececnt ospf routers it has recieved hello packets from
+								> Area Id: Area no. configured for the interface
+								> Router Priority: to select DR & BDR
+								> DR & BDR IPv4 address (if known)
+								> Authentication Flag: Authentication details, if configured
+								> Stub Area Flag: If the area is a stub area, stub areas have a default route to ABR instead of learning IA routes
+					> OSPF Adjecency:
+						> These settings must match for a pair of routers to form adjecency with each other:
+							> Must be in each other's neighbours list
+							> Hello & Dead intervals
+							> Area Id
+							> IP subnet
+							> Authentication flag
+							> Stub area flag
+						> On MTU mismatch b/w 2 ospf routers, they will form adjececncy till EXCHANGE state only (i.e. wont share routes with each other)
+							> MTU: Maximum Transmission Unit: Maximum size of a packet
+							> MTU is configured at interface level (1500 bytes default) - interface MTU(all packets) or interface ip MTU(ip packets)
+						> Adjececncy forming process:
+							1) 1st router sends a hello packet with its router-id multicat to 225.0.0.5, empty neighbour list initially
+							2) Neighbour see this packet, replies with unicast hello packet with its router-id & 1st router in N-list
+							3) 1st router recieves this, replies with hello packet unicast, with 2nd router in N-list
+							4) 2-way state achieved/Neighbours discovered (3 hello paackets shared)
+							5) Then both negotiate who is going to send info first (higher router id shares first)
+							6) They share DBD (summary of their LSDB), with each DBD the other acknowledges with an LSAck
+							7) Routers share with each other LSR for only important/required routes, other router replies with an LSU
+							8) Both finally acknowledge each other with an LSAck, telling they have recieved all required information
+						> Neighbour states through adjecency forming process:
+							1) Down: No active neighbour detected
+							2) Init: Hello packet recieved from neighbour
+							3) 2-way: Own router-id recieved in hello packet
+							4) Exstart: Primary & secondary roles determined
+							5) Exchange: DBDs sent
+							6) Loading: Exchange of LSRs & LSUs
+							7) Full: Neighbours fully adjececnt
+					> OSPF on Point to point vs Multiaccess Segments:
+						1) Point to point links (2 nodes/routers directly connected to each other, through serial interfaces):
+							> OSPF router pairs form a FULL adjececncy
+							> NO DR-BDR election
+						2) Multiaccess segments (>2 routers inter-connected via switch, through ethernet interfaces to form single shared network/LAN):
+							> If all routers form FULL adjececncy w each other => repetetive info would be shared to the same link => INEFFICIENT!
+							> DR (Designated Router) & BDR (Backup Designated Router):
+								> Router pair is elected as DR-BDR, they acquire routing info from all routers in LAN, consolidate & spread it around
+								> Router with highest priority = DR | Router with 2nd highest priority = BDR
+								> Priority: 0(lowest)...1(default)...255(highest) | If priority tie, highest router-id is used
+								> DR/BDR election is done when all routers in LAN reach 2-WAY state
+									> After DR-BDR election, other routers reach FULL state with the DR & BDR
+									> Other routers remain in 2-WAY state with each other
+									> DR & BDR reach FULL state with each other
+								> DR/BDR election is done on the interface-level of a router
+								> Reconvergence:
+									> If a link's state changes, it sends a multicast LSU to 224.0.0.6 (all DRs) (BDR learns as well)
+									> DR (only DR, not BDR) multicasts the update to 224.0.0.5 (all ospf routers)
+
+Routing Database
+	All routes are added to their corresponding routing databases first, before making it into the routing table
+	Separate database for each type of route - connected routes db, static routes db, dynamic routes db for each protocol
+	All routes across all databases are compared, best route for each destination makes it into the routing table
+
+
+------------------------------------------------------------------------------------ROUTING_LAB--------------------------------------------------------------------------------------
+---------FUNDAMENTALS------------
+Adding IP Address on Router's Interface
+	R1(config)#interface <intNo>			// eg. intNo = FastEthernet0/0
+	R1(config-if)#ip address <ipAddress> <subnetMask>
+
+Show Routing Table
+	R1#show ip route
+
+Adding Static Route
+	R1(config)#ip route <destinationNetIPAddr> <destinationNetMask> <nextHopIPAddr>
+
+Adding Floating Static Route
+	R1(config)#ip route <destinationNetIPAddr> <destinationNetMask> <nextHopIPAddr> <AD>
+
+Creating Loopback Interface
+	R1(config)#interface loopback <loopbackIntNo>	// loopbackIntNo = 0,1,...
+	R1(config-if)#no shutdown			// to bring interface up
+	R1(config-if)#ip address <IPAddr> <netMask>	// add ip addr to int
+
+Show Active Routing Protocols on Router
+	R1#show ip protocols
+
+Configure Passive Interface
+	R1(config-router)#passive-interface <intNo>	// eg.intNo=f2/0,loopback 0|at protocol config
+			OR
+	R1(config-router)#passive-interface default
+	R1(config-router)#no passive-interface <intNo>
+	R1(config-router)#no passive-interface <intNo>
+			.
+			.
+			.
+
+Default Route Injection
+	// To add a default route route to edge router, let protocol propogate it to all routers
+	R4(config)#ip route 0.0.0.0 0.0.0.0 <nextHopIP>	// configure default static route
+	R4(config)#router <protocol>			// enter protocol configuration prompt
+	R4(config-router)#default-information originate	// protocl spreads default route from R4 to all
+
+------------RIP-------------
+RIP Config
+	R1(config)#router rip		// 'router' cmd for configuring routing protocols
+	R1(config-router)#version 2	// 'version 2' to use RIPv2
+	R1(config-router)#network 10.0.0.0// rip enabled on int w IP in 10.0.0.0, default classful mask
+	R1(config-router)#no auto-summary// disable auto-summarisation
+
+RIP Manual Summarisation of Routes
+				  f1/0 10.0.0.1/24
+				  /
+		10.1.0.1/24 f0/0-R1-f2/0 10.0.1.1/24
+				 \
+				 f3/0 10.0.2.1/24
+	R1(config)#interface f0/0
+	R1(config-if)#ip summary-address rip 10.0.0.0 255.255.0.0
+
+RIP Verification
+	1. R1#show ip protocols			// inner protocol details for all configured protocols
+	2. R1#show runnig-config | section rip	// active rip config in ram
+	3. R1#show ip route			// rip routes in routing table
+	4. R1#show ip rip database		// rip database
+
+----------EIGRP--------------
+EIGRP Config
+	R1(config)#router eigrp <ASno>				// r w same eigrp AS no. peer w e o
+	R1(config-router)#network <networkId> <wildcardMask>	// enable eigrp on int w IP in netwokId
+
+EIGRP Verification
+	1. R1#show ip protocols
+	2. R1#show running-config | section eigrp
+	3. R1#show ip route
+	4. R1#show ip eigrp database
+	5. R1#show ip eigrp interfaces		// interface related eigrp details, for all interfaces
+	6. R1#show ip eigrp neighbours		// neighbour related eigrp details, for all neighbours
+
+EIGRP Manual Router Id Config
+	R1(config-router)#eigrp router-id <routerIdIP>
+	R1(config)#clear ip eigrp process	// routerId resets on process reload(or reconfig eigrp)
+
+------------OSPF---------------
+OSPF Config
+	R1(config)#router ospf <processId>	// pid is locally significant, is for domain splitting
+	R1(config-router)#network <networkId> <wildcardMask> area <areaNo> // areaNo for summarisation
+
+OSPF Verification
+	1. R1#show running-config | section ospf// protocol config verification
+	2. R1#show ip protocols			// protocol details verification
+	3. R1#show ip ospf interface [<intNo>|brief]	// interfaces verification
+	4. R1#show ip ospf neighbour		// adjecency/neighbours verification
+	5. R1#show ip ospf database		// routing database verification
+	6. R1#show ip route			// routing table verification
+	7. R1#debug ip ospf adjecency		// debug ospf adjecency formation
+	8. R1#debug ip ospf hello		// debug hello sending & recieving process
+
+OSPF Manual Router Id Config
+	R1(config-router)#router-id <routerIdIP>
+	R1(config)#clear ip ospf process	// router id sets on process reload (or reconfig ospf)
+
+OSPF Manual Route Summarisation through Areas on ABRs
+	R1(config-router)#area <areaNo> range <networkIP> <subnetMask>
+		// routes within this area will be summarised to this when shared outside area
+
+OSPF Manual Set Reference Bandwidth
+	R1(config-router)#auto-cost reference-bandwidth <mbps>	// must be set on all routers in domain
+
+OSPF Manual Set Interface OSPF Cost
+	R1(config-if)#ip ospf cost <cost>// must be same on both sides of link for symmetric routing
+
+OSPF Manual Set Hello Interval
+	R1(config-if)#ip ospf hello-interval <seconds>	// must match on ends of link for adj formation
+
+OSPF Manual Set Priority (for DR/BDR election)
+	R1(config-if)#ip ospf priority <number0-255>	// restart OSPF on interface => flap interface

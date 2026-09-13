@@ -1,0 +1,126 @@
+-----------------------------------------------------------------------------------SWITCHSECURITY------------------------------------------------------------------------------------
+ACCESS LAYER SWITCH SECURITY MECHANISMS
+1. DHCP Snooping
+	> Prevents against DHCP Spoofing attack
+		> Unauthorized device acts as DHCP server, intercepts client's dhcp-requests, responds with malicious network settings
+		> Allows attacker to execute MitM (Man in the middle) or DoS (Denial of service) attack
+	> Solution: DHCP Snooping
+		> Switchport are configured as trusted (connected to/on route to legitimate DHCP server) or untrusted (connected to access devices (possible DHCP Spoofers))
+		> Switch drops any DHCP server responses recieived on any untrusted ports
+
+2. DAI (Dynamic ARP Inspection)
+	> ARP is unauthenticated, any user can claim any IP address by sending out a gratuitous arp, others will unconditionally update their local arp caches
+	> An attacker can poison access-devices' and default gateway's arp caches, to pretend as access-devices (for gateway) and gateway (for access-devices)
+	> Allow attacker to execute MitM or DoS attack
+	> Solution: DAI (Dynamic Arp Inspection)
+		> DHCP Snooping must already be enabled => DHCP Snooping DB maintained by switch, tracks ip to mac address assignments by DHCP server
+		> All ARP updates sent by dynamic end-hosts (configured on untrusted ports), are checked against DHCP Snooping DB for mac-ip correctness
+			if no such binding => Malicious ARP => ARP dropped
+		> No mac-ip DB available for static devices => ARP updates have to be trusted regardless => Static devices must be configured on trusted ports to bypass DAI
+
+3. 802.1X Identity Based Networking
+	> When 802.1X is enabled, only authentication traffic is allowed on switchports until the host and user are authenticated
+	> Once user authenticated with valid username & password, port transitions to normal access port in relevant VLAN
+
+		User (802.1X supplicant) ----- Authenticator Access Switch (802.1X configured) ----- Authentication Server (ACS/ICE) (Active Directory Domain Controller)
+				    			|
+							 ----- Other LAN resources
+	> Process
+		> User, when plugs into the authenticator access switch the first time, has access to only the authentication server
+		> Once authenticated, port on authenticator access switch transitions to normal, giving access to LAN resources in relevant VLAN, acc. to user-privileges
+
+
+PORT SECURITY
+1. Always 'shutdown' unused ports
+
+2. Port Security
+	> Port Security: Enables locking - { 1.Number of mac-addresses 2.Mac-addresses } allowed on a switchport
+	> Any violation, higher number of devices than allowed or any device with other than the allowed mac, results in packet drop or port disable
+	> Issue: MAC-addresses can be easily spoofed (faked or changed) on software level => No actual security achieved
+	> Port Security can be implemennted in another way
+		> Number of mac-address can be locked, actual mac-address will be dynamically locked (devices to transfer packets first will be locked as allowed on that switchport)
+			=> This prevents from replacing a device with WiFi or other shared devices on a switchport, hoping to connect more devices
+			=> If a device replaced with wifi/switch, due to locked mac-address at switchport,
+				original device retains access to network, any additional/new devices (macs not locked at port) will have their packets dropped at switch
+	> Port security default behaviour (If port security configured with no additonal parameters)
+		> Only 1 mac-address allowed to transmit on switchport
+		> Mac-address not locked on switchport (device can be replaced with another device)
+		> If shared device connected at switchport and multiple devices try to transmit, port will be shutdown
+	> Violation Modes (Security reaction to unauthorized MAC-address sending traffic into port)
+		1. Shutdown (default)
+			> Interface put into error-disabled state
+			> All traffic blocked
+		2. Protect
+			> Traffic from unauthorized mac-addresses dropped
+			> Traffic from authorized mac-addresses forwarded
+		3. Restrict
+			> Traffic from unauthorized mac-addresses dropped, logged, violation counter incremented
+			> Traffic from authorized mac-addresses forwarded
+	> Port recovery from eror-disabled state
+		> If violation mode set to shutdown, violation occurs, port put in error-disabled state, recovery
+			1. Physically remove host with offending mac-address
+			2. Manually 'shutdown' then 'no shutdown' interface, to bring it back up
+		> Auto-recovery
+			> use cmd 'errdisable recovery'
+			> set cause to 'psecure-violation'
+			> set recovery attempt interval
+	> Port security can only be enabled on access ports (not on trunk or dynamic ports)
+	> Mac-addresses can be locked to a switchport
+		1. Manually/statically locking mac-addresses
+		2. Sticky mac-addresses
+			> First allowed number of devices to transmit packets will have their mac-addresses locked to their corresponding switchports
+			> Mac-addresses associated with each port for port-security will be saved in the running-configuration
+			> Admin can save them to startup config to make them permanent
+	> Sticky mac-address locking vs No mac-address locking
+		> Sticky mac-address locking: port learns mac-address of device that 1st transfers packets
+		> No mac-address locking: port doent lock mac-address at all; only maximum number of allowed macs locked, devices at port are replacable
+
+
+---------------------------------------------------------------------------------SWITCHSECURITY_LAB----------------------------------------------------------------------------------
+ACCESS LAYER SWITCH SECURITY MECHANISMS
+Config DHCP Snooping
+	SW1(config)#ip dhcp snooping			// enable dhcp snooping at global config to make dhcp snooping available on switch
+	SW1(config)#ip dhcp snooping vlan <vlanNo>	// config dhcp snooping at vlan level
+	SW1(config)#interface f0/1
+	SW1(config-if)#ip dhcp snooping trust		// configure interface as trusted port for DHCP snooping
+
+Config DAI
+	// configure DHCP Snooping (prerequisite)
+	SW1(config)#ip dhcp snooping			// enable dhcp snooping at global level to make dhcp snooping available on switch
+	SW1(config)#ip dhcp snooping vlan 10		// configure dhcp snooping at vlan level
+
+	// configure DAI
+	SW1(config)#ip arp inspection vlan 10		// enable DAI at vlan level
+	SW1(config)#interface f0/1
+	SW1(config)#ip arp inspection trust		// configure intf as trusted for DAI => DAI skipped on this port; Static devices must be configured on trusted ports
+
+
+PORT SECURITY
+Config Port Security
+	SW1(config)#interface f0/1
+	SW1(config)#switchport port-security
+
+Verification Port Security
+	1. SW1#show port-security interface f0/1	// shows port-security details for specified interface:- port status, security, violation, allowed macs & no. of macs, etc
+	2. SW1#show port-security address		// shows allowed mac-addresses for all port-security enabled interfaces
+	3. SW1#show port-security			// shows summary for all ports at once on switch
+
+Config Change Violation Mode for an interface
+	SW1(config)#interface f0/1	
+	SW1(config-if)#switchport port-security violation <'restrict' | 'protect' | 'shutdown'>
+
+Config Auto-recovery of interface from error-disabled state
+	SW1(config)#errdisable recovery cause psecure-violation		// set error-disable recovery cause to 'psecure-violation'
+	SW1(config)#errdisable recovery interval <seconds>		// set error-disable recovery attempt interval in seconds
+
+Config Maximum number of mac-addresses allowed on a switchport
+	SW1(config)#interface f0/1
+	SW1(config-if)#switchport port-security maximum 2			// max 2 mac-addresses allowed on this intf (when mult. host share port, eg. pc behind ip-phone)
+
+Config Statically locked mac-address on switchport
+	SW1(config)#interface f0/1
+	SW1(config-if)#switchport port-security mac-address <mac-address>	// statically lock mac-address to this interface
+
+Config Sticky mac-addresses on switchport
+	SW1(config)#interface f0/2
+	SW1(config-if)#switchport port-security mac-address sticky		// 1st device to transfer packets will have its mac-address locked to this port (in running config)

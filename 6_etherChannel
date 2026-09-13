@@ -1,0 +1,143 @@
+------------------------------------------------------------------------------------ETHERCHANNEL-------------------------------------------------------------------------------------
+Campus Design Oversubscription
+	> End-hosts at access layer do not constantly send traffic upstream
+		=> Core<-Distribution bandwidth can be much lesser than Distribution<-Access bandwidth
+			=> Lesser number Core<-Distribution uplinks than Distribution<-Access uplinks
+	> Oversubscription ratio
+		> Ratio of uplinking bandwidth on Access than to uplinking bandwidth on Distribution
+		> (Disribution<-Access bandwidth) / (Core<-Distribution bandwidth)
+		> Recommended Oversubscription
+			> 20:1 from Access to Distribution
+			> 4:1 from Distribution to Core
+	> Usually Core/Distribution switches have separate interfaces, with high port count and low bandwidth, for downlinking to access layer
+		and separate interfaces, with low port count and high bandwidth, for uplinking to core layer
+	> Many times, to increase uplinking bandwidth, multiple uplinks between the same 2 switches are deployed, to multiply the uplinking bandwidth
+
+				Dist1
+				 | |
+				 | |		2x Uplinking bandwidth available
+				 | |
+			       Access1
+			      /       \
+			    PC1       PC2
+
+		> Although STP blocks one of the links for loop prevention => Availavle uplinking bandwidth remains same
+		> STP recieves multiple equal cost paths via same neighbour switch
+		> Path through port with lower Port Id (Port Priority + Port Number) on uplinking switch will be choosen as Root path for this switch
+		> Other link will be blocked, kept on standby for failover
+
+EtherChannel
+	> EtherChannel
+		Multiple physical interfaces grouped into a single logical interface, on inter-switch links
+	> STP sees this etherchannel as single interface => Does not block any link => Full available bandwidth usable
+	> Automatic Load-Balancing and Redundancy with Etherchannel
+		> Load-Balancing: Traffic will automatically be load-balanced across all links in etherchannel
+		> Redundancy: If a link fails, its traffic will failover to remaining links in etherchannel
+	> Also called as
+		> Port Channel
+		> LAG (Link Aggregation)
+		> Link Bundle
+
+NIC Teaming
+	> Etherchannel groups interfaces on inter-switch links
+	> NIC Teaming groups NIC cards on servers into single logical interface, with single IP => No STP blocking + Automatic Load-Balancing & Redundancy
+	> Also called as
+		> Bonding
+		> NIC Balancing
+		> Link Aggregation
+
+EtherChannel Load-Balancing
+	> Packets from the same flow always go over the same interface within the PortChannel
+		Load-Balancing packets, from same flow, round-robin across all links within PortChannel, might cause packets to arrive out-of-order, data corrupted
+	> Load-balancing occurs when traffic from multiple flows is to be passed through the PortChannel, each flow will go over a separate single link
+		=> Each flow receives a maximum bandwidth of a single link only
+
+Etherchannel Protocols
+	> Etherchannel, for all protocols, is created using 'channel-group' cmd
+	> Interface-Channel-Mode is specified along with the 'channel-group' cmd
+	> Interface-Channel-Mode depends on the etherchannel protocol being used
+	> Etherchannel protocol being used (specified thru IntfChannelMode) match on both ends for portchannel to come up
+	1) LACP (Link Aggregation Control Protocol)
+		> Open standard
+		> Automatic Portchannel creation & maintenence negotiation on both sides
+		> Interface-Channel-Mode: 'active' or 'passive' (atleast one side must be 'active' for portchannel to be negotiated)
+	2) PAGP (Port Aggregation Protocol)
+		> Cisco proprietary
+		> Automatic Portchannel creation & maintenence negotiation on both sides
+		> Interface-Channel-Mode: 'desirable' or 'auto' (atleast one side must be 'desirable' for portchannel to be negotiated)
+	3) Static Etherchannel
+		> No automatic Portchannel creation & maintenence negotiation
+		> Interface-Channel-Mode: 'on' (both sides must strictly be 'on' for port channel to come up)
+		> To turn off, use '#no channel-group <channelNumber> mode on'
+
+Etherchannel Creation using Etherchannel Protocols
+	1. Select range of interfaces to be grouped into etherchannel
+		#interface range <startIntf> - <endIntf>
+	2. Create etherchannel using 'channel-group' cmd
+		#channel-group <channelNumber> mode <intfChannelMode>
+	3. Etherchannel protocol being used must be same on both ends of portchannel for it to be negotiated
+	4. Interface parameters must also match on both sides of portchannel for it to come up
+		> Speed & Duplex
+		> Access or Trunk
+		> Access VLAN on access ports
+		> Native VLANs and allowed VLANs on trunk ports
+	5. Newly created logical interface (Etherchannel) can be accessed as 'port-channel <channelNumber>' interface, for further interface configurations
+		#interface port-channel <channelNumber>
+
+Multi-Chassis EtherChannel
+		
+		CD1-----CD2
+		\\	//
+		 \\    //
+		   Acc3	
+	> Etherchannel combined 2 links into single logical link
+	> Multi-Chassis Etherchannel combines multiple etherchannels going from an access switch to a redundant core-distribution switch pair, into a single etherchannel
+		=> Entire bandwidth avaiable (otherwise stp blocks 1 of 2 etherchannels)+ Automatic Load-Balancing + Automatic Failover
+	> Technologies that support Multi-Chassis Etherchannel are stackwise, vss, vpc, available on higher end cisco switches
+
+Layer 3 EtherChannel
+	> Etherchannel can also be configured at layer 3 on a layer 3 switch
+	> Similar configuration except
+		> Ports are made layer 3 ports through '#no switchport'
+		> After creating etherchannel, IP address is added on this logical interface through usual interface configuration
+		> '#no shutdown' to bring this logical layer 3 port up
+
+Layer 3 Switches
+	> Increasing trend in modern networks is to deploy layer 3 switches in instead of layer 2 switches
+	> Making inter-switch links as layer 3 links not layer 2 links ()layer 3 etherchannels instead of layer 2 etherchannels)
+	> STP will not be required anymore, load-balancing, path determination, and failover will be handled by routing protocols, which faster in convergence & dont block links
+
+----------------------------------------------------------------------------------ETHERCHANNEL_LAB-----------------------------------------------------------------------------------
+Config EtherChannel using EtherChannel Protocols
+	1. LACP
+		SW1(config)#interface range f0/23 - 24
+		SW1(config-if-range)#channel-group 1 mode <'active' | 'passive'>
+		SW1(config-if-range)#end
+
+	2. PAGP
+		SW1(config)#interface range f0/23 - 24
+		SW1(config-if-range)#channel-group 1 mode <'desirable' | 'auto'>
+		SW1(config-if-range)#end
+
+	3. Static setup
+		SW1(config)#interface range f0/23 - 24
+		SW1(config-if-range)#channel-group 1 mode on
+		SW1(config-if-range)#end
+
+	// Additional interface configurations on created PortChannel
+		SW1(config)#interface port-channel 1
+		SW1(config-if)#switchport mode trunk
+
+Verification EtherChannel
+	1. SW1#show etherchannel summary		// shows summary of status and details for all portchannels on switch
+	2. SW1#show etherchannel			// verbose output
+	3. SW1#show spanning-tree vlan <vlanNo.>	// stp will see a single logical port instead of separate individual physical ports => stp will not block those ports anymore
+
+Config Layer 3 Etherchannel on a Layer 3 Switch
+	SW1(config)#interface range f0/23 - 24				// select interface range
+	SW1(config-if-range)#no switchport				// convert to lyer 3 ports
+	SW1(config-if-range)#channel-group 1 mode <intfChannelMode>	// create etherchannel
+	SW1(config-if-range)#end
+	SW1(config)#interface port-channel 1				// enter interface config for etherchannel
+	SW1(config-if)#ip address 192.168.0.1 255.255.255.252		// add ip address on this logical layer 3 port
+	SW1(config-if)#no shutdown					// to bring thus layer 3 port up

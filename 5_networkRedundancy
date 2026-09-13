@@ -1,0 +1,689 @@
+										NETWORKREDUNDANCY
+Network Redundancy
+	Deploying critical network devices in redundant pairs instead of single device to eleminate single points of failure (backup device takes over if main device goes down)
+
+Steps to implement network redundancy (router and switch redundancy)
+	1) Deploy critical devices in redundant pairs
+	2) Configure failover
+		1) Layer 3
+			> Network set up with static routes: admin must configure backup static routes through redundant device for if any directly connected device goes down
+			> Network set up with dynamic routes: automatically handled by dynamic routing protocols (through backup routes in routing db)
+		2) Layer 2
+			Automatically handled by frame flooding and mac-address learning
+	3) Handle issues caused due to redundancy
+		1) Default gateways for end-hosts do not get automatically updated after LAN-edge router failover
+			Solution Layer 2 & 3 -> FHRPs: automatic gateway failover (handles layer 3 failover internally)
+		2) Loop formation due to redundant devices
+			> Solution Layer 3 -> Automatic; 1) Inbult loop-prevention mechanisms in dynamic routing protocols 2) TTL field in IP header
+			> Solution Layer 2 -> STP: automatically detects loops, blocks redundant links breaking loops (loop prevention), opens links if failure (failover at layer 2)
+
+Load-balancing
+	> Additional load-balancing can also be configured across the redundant pair for full utilisation
+	> Admin configured load-balancing: Half traffic passes through 1st device (2nd device as backup), other half traffic passes through 2nd device (1st device as backup)
+		=> Entire bandwidth is exhausted at all times
+
+Ex. Admin configured layer 3 failover (at LAN-edge router pair) through setting backup static routes
+
+		Redundant Deployment						Single Deployment
+	
+	SP1-.9-------203.0.113.8/30---------.10-SP2					SP
+	|					|					|
+	.1					.5					|
+	|					|					R
+	|					|					|
+  203.0.113.0/30			  203.0.113.4/30				|
+	|					|					CD
+	|					|				       /  \
+	.2					.6				      /    \
+	|					|				  Acc3	    Acc4
+	R1-.1-------10.10.20.0/30------------.2-R2				   |	      |
+	|					|				   |	      |
+  10.10.10.2/24				  10.10.10.3/24				  PC1	     PC2
+	|					|
+	|					|
+	|					|
+	CD1-------------------------------------CD2
+	|\				       /|
+	|	\			/	|
+	|		\	/		|	  LAN-edge router, and CD switch have been deployed in redundant pairs
+	|		/	\		|
+	|	/			\	|
+	|/				       \|
+	Acc3					Acc4
+	|					|
+	|					|
+	PC1					PC2
+  10.10.10.10/24			  10.10.10.11/24
+
+	Failover config for R1 & R2
+		> Standard configuraton on R1
+			> Default static route to SP1: ip route 0.0.0.0 0.0.0.0 203.0.113.1
+			> 203.0.113.0/30 directly accessible (connected route)
+			> 10.10.10.0/24 directly accessible (connected route)
+		> Configuring backup routes (via R2) on R1
+			> For if SP1 goes down: ip route 0.0.0.0 0.0.0.0 10.10.20.2 5		// AD set to 5 for route as backup, stored in routing db
+			> For if CD1 goes down: ip route 10.10.10.0 255.255.255.0 10.10.20.2	// static route, backup for connected route to 10.10.10.0/24
+		> Similar configuraton on R2, preferred routes are via SP2 and CD2, in case of outage failover to R1 (i.e. use backup routes via R1)
+
+
+-----------------------------------------------------------------------------------------HSRP----------------------------------------------------------------------------------------
+Network redundancy at layer 3
+	> Failover & path selection
+		> Statically routed network: Admin need to configure backup static routes via redundant device
+		> Dynamically routed network: Automatically handled by dynamic routing protocols
+		> Automatically handled by HSRP (FHRPs)
+	> Issues due to redundant devices
+		> Default gateways for end-hosts do not get automatically updated after LAN-edge router failover
+			Solution -> HSRP (FHRPs): automatic gateway failover
+		> Loop formation
+			Solution -> Automatically handled due to 1) Inbuilt loop prevention mechanism in dynamic routing protocols 2) TTL field in the IP header
+
+FHRPs (First Hop Redundancy Protocols)
+	> Problem Addressed
+		> Static default gateway configuration for end-hosts (Standard failovers dont update default gateway information configured at end-hosts)
+	> Automatic gateway failover (internally handles failover at router pair + makes sure active router is configured at end-hosts as default gaetway)
+		> Combines the LAN-edge router pair into a single virtual router with a virtual IP (VIP) and a virtual MAC (VMAC)
+		> Elects from the router pair an active (handles entire traffic) and a standby (takes over if active goes down) => Automatic failover at LAN-edge router pair
+		> End-hosts use this VIP (virtual IP) as their default gateway address => Automatic failover for default gateway configuration at end-host
+	> Automatic Load balancing capability varies for each protocol, depends on the internal router pair deployment configuration:
+		1) Active/standby - No native load balancing
+		2) Active/active - Native load balancing
+	> Common FHRPs:
+		> HSRP (Hot Standby Router Protocol): Cisco proprietary, most common, active/standby router pair deployment - No native load balancing
+		> VRRP: Open standard, active/standby router pair deployment - No native load balancing
+		> GLBP: Cisco proprietary, active/active router pair deployment - Native load balancing
+
+HSRP (Hot Standby Router Protocol)
+	> Comibes the router pair to a virtual router (VIP & VMAC), used as default gateway for end-hosts, automatically provides failover at router pair
+	> Deploys router pair as Active/standby pair => No native load balancing
+	> HSRP Operations
+		> Both routers have their normal physical IP and MAC addresses on their HSRP interface
+		> Both routers also have the HSRP VIP and VMAC addresses on their HSRP interface
+		> When both router come online, and HSRP is enabled on both routers, one is elected as the active router and the other remains as the standby router
+		> Active router owns the VIP and VMAC addresses => responds to arp requests, all traffic addressed for the VIP address goes through the active router
+		> Routers send hello messages to each other through their HSRP enabled interface
+		> If the standby router stops recieving hello messages from the actve router, it transitions from standby to active, takes ownership of VIP and VMAC
+	> HSRP is configured on the interface level of a router
+	> HSRP Configuration
+		> cmd: (config-if)#standby <groupNumber> ip <vip>
+		> groupNumber
+			> specifies the HSRP virtual router # in the VLAN
+			> must match across routers forming the HSRP redundant pair
+			> locally significant to the subnet/VLAN
+			> routers share their group number with each other in hello messages, if different group numbers => hello msgs ignored => routers dont find each other
+		> vip
+			> ip address to be used as the vip address
+	> HSRP Priority
+		> Active router gets elected based on its priority
+		> cmd: (config-if)#standby 1 priority <priorityValue>
+		> Higher priority is preferred
+		> Default is 100
+		> In case of priority tie, higher IP address wins
+	> HSRP Pre-emption
+		> If pre-emption enabled, an HSRP router with higher priority once comes/comes back up, will transition/transition back to being active
+		> cmd: (config-if)#standby 1 preempt
+		> Less stable <= The higher priority router might keep flapping up-down due to an issue, continuous switching of the active router
+		> If pre-emption not enbled (default), lower priority router will remain as active router when a higher priority router come back online
+	> HSRP Version
+		> HSRPv2
+		> HSRPv1 (default)
+		> Router pair must run same HSRP version in order to recognize each other <= Format of hello message different in both versions
+	> HSRP configuration mismatch
+		> group number, vip, and hsrp version, all must match across routers to form an hsrp redundant router pair
+		> group number mismatch: routers recognize but ignore each other
+		> vip mismatch: hsrp peering cannot be fully completed, error is thrown on console "virtual ip mismatch"
+		> hsrp version mismatch: routers dot understand each other <= format of hello message is different across versions
+	> Manual Load balancing implementation with HSRP
+		1) Load balancing within subnet
+			> Aim: have 50% traffic through R1 & other 50% traffic through R2
+			> 2 HSRP router groups are configured out of the same router pair in the same subnet, Grp1[R1(Active)/R2(Standby)] Grp2[R2(Active)/R1(Standby)]
+				=> Both routers managed to be kept active at the same time, by having each own a different VIP
+			> 50% hosts are configured for Grp1 as default gateway, rest 50% hosts are configured for Grp2 as default gateway
+				=> 50% traffic through R1 & other 50% traffic through R2
+		2) Load balancing across subnets
+			> Aim: have a subnets's traffic through R1 & other subnet's traffic through R2
+			> An HSRP router group (R1:active) is configured for subnet1 & another HSRP router group (R2:active) is configured for subnet2
+				=> R1 active gateway (R2 standby gateway) for subnet1 & R2 active gateway (R1 standby gateway) for subnet2
+
+		Load balancing within subnet		Load Balancing across subnets
+			R1	R2				R1	R2
+			|	|			       / _\____/  \
+			---------			      / /  \_____  \
+			|Subnet	|		       ---------	 \  \  
+			---------		       |Subnet1|	---------
+						       ---------	|Subnet2|
+									---------
+
+
+---------------------------------------------------------------------------------------HSRP_LAB--------------------------------------------------------------------------------------
+Config HSRP on router pair
+	R1(config)#interface g0/1
+	R1(config-if)#ip address 10.10.10.2 255.255.255.0
+	R1(config-if)#no shutdown
+	R1(config-if)#standby 1 ip 10.10.10.1		// set vip
+	R1(config-if)#standby 1 priority 110		// set priority
+	R1(config-if)#standby 1 preempt			// set to preempt
+	R1(config-if)#standby 1 version 2		// set hsrp versio to 2
+
+	R2(config)#interface g0/1
+	R2(config-if)#ip address 10.10.10.3 255.255.255.0
+	R2(config-if)#no shut
+	R2(config-if)#standby 1 ip 10.10.10.1		// set vip
+	R2(config-if)#standby 1 priority 90		// set priority
+	R2(config-if)#standby 1 version 2		// set hsrp version to 2
+
+Verification HSRP
+	1. R1#show standby		// full HSRP details of the router
+
+Config Load balancing on HSRP router pair within subnet
+	R1(config)#int g0/1
+	R1(config-if)#ip address 10.10.10.2 255.255.255.0
+	R1(config-if)#no shut
+	R1(config-if)#standby 1 ip 10.10.10.1
+	R1(config-if)#standby 1 priority 110
+	R1(config-if)#standby 1 preempt
+	R1(config-if)#standby 2 ip 10.10.10.254
+	R1(config-if)#standby 2 priority 90
+
+	R2(config)#int g0/1
+	R2(config-if)#ip address 10.10.10.3 255.255.255.0
+	R2(config-if)#no shut
+	R2(config-if)#standby 1 ip 10.10.10.1
+	R2(config-if)#standby 1 priority 90
+	R2(config-if)#standby 2 ip 10.10.10.254
+	R2(config-if)#standby 2 priority 110
+	R2(config-if)#standby 2 preempt
+
+	// configure 50% hosts to use 10.10.10.1 (vip group 1) as default gateway, other 50% hosts to use 10.10.10.254 (vip group 2) as default gateway
+
+Config Load balancing on HSRP router pair across subnets
+	R1(config)#int g0/1
+	R1(config-if)#ip add 10.10.10.2 255.255.255.0
+	R1(config-if)#no shut
+	R1(config-if)#standby 1 ip 10.10.10.1
+	R1(config-if)#standby 1 priority 110
+	R1(config-if)#standby 1 preempt
+	R1(config-if)#end
+	R1(config)#int g0/2
+	R1(config-if)#ip add 10.10.20.2 255.255.255.0
+	R1(config-if)#no shut
+	R1(config-if)#standby 1 ip 10.10.20.1
+	R1(config-if)#standby 1 priority 90
+
+	R2(config)#int g0/1
+	R2(config-if)#ip add 10.10.10.3 255.255.255.0
+	R2(config-if)#no shut
+	R2(config-if)#standby 1 ip 10.10.10.1
+	R2(config-if)#standby 1 priority 90
+	R2(config-if)#end
+	R2(config)#int g0/2
+	R2(config-if)#ip add 10.10.20.3 255.255.255.0
+	R2(config-if)#no shut
+	R2(config-if)#standby 1 ip 10.10.20.1
+	R2(config-if)#standby 1 priority 110
+	R2(config-if)#standby 1 preempt
+
+
+-----------------------------------------------------------------------------------------STP-----------------------------------------------------------------------------------------
+Network redundancy at Layer 2
+	Failover and path selection
+		> Automatically handled by frame flooding and mac-address learning
+		> Automatically handled by STP
+	Issues due to redundant devices
+		> Lack of default gateway updation after layer 3 failover
+			Solution -> HSRP (FHRPs): automatic gateway failover (already handled at layer 3, solves problem entirely, at layer 2 & 3)
+		> Loop formation
+			Solution -> STP: automatically detects loops, blocks links to break loops (loop prevention), unblocks links if case of failure (failover at layer 2)
+
+Loop formation issue at layer 2
+	R1	R2
+	|	|
+	CD1-----CD2	1) PC1 sends arp request for default gateway to Acc3
+	|  \ /	|	2) Acc3 broadcasts it to CD1 and CD2
+	|  / \	|	3) CD1 broadcasts it to R1 and CD2		// CD2 recieves same arp request 2x
+	Acc3	Acc4	4) CD2 broadcasts it to CD1 and Acc4		// CD1 recieves same arp request 2x
+	|	|			.						.
+	PC1	PC2			.						.
+					.						.
+								|
+								V
+							
+		Due to loops being formed in a redundant device switched network (w/o STP), the arp request doubles (sometimes triples) with each broadcast
+						=> BROADCAST STORM => Chokes Network
+
+								|
+								V
+
+		Redundant links leading to loop formation in a redundant switched network need to be blocked, to break loops
+								+
+				In case of failure, blocked links must open up to provide failover
+
+								|
+								V
+
+					STP (Spanning Tree Protocol)
+						1) Blocks redundant links, breaking loops => Loop prevention
+						2) Unblocks the redundant links in case the corresponding active links go down => Failover
+
+STP (Spanning Tree Protocol)
+	> Provides loop prevention and failover in a redundant switched network
+	> Load balancing
+		> No load balancing possible within a single spanning tree instance
+		> Load balancing possible if users split into VLANs, complementing loads can put on switches for each VLAN
+	> STP is industry standard, by default, enabled on all vendor's switches
+
+STP Process
+	> When a switch first comes up, all ports will be in blocking state (no end-host traffic forward)
+	> All ports will send out BPDUs to neighbour switches
+	> BPDUs
+		> Bridge Protocol Data Units: contain STP related information of sender switch, to be communicated with directly connected neighbours
+		> BPDU contents: 1)switch's Bridge ID 2)local path cost to Root Bridge 3)local port id 4)timers
+		> Bridge ID
+			> Uniquely identifies the switch on the LAN
+			> Bridge ID = switch's MAC address + admin defined Bridge Priority value
+			> Bridge Priority value
+				> Lower Bridge Priority value is preferred
+				> 0 (highest priority) - 65535 (least priority)
+				> Default: 32768
+			> Bridge MAC address
+				Lower MAC address is preferred
+	> Task 1: Root Bridge Election, through communication with each other through BPDUs
+	> Root Bridge
+		> Master switch of the LAN
+		> Spanning tree is built with Root Bridge on the top
+		> All switches forward their traffic only towards the Root Bridge
+		> Switch with best Bridge ID (least Bridge Priority value, least MAC address)
+	> Task 2: Switches select Root Port and Root Path, through communication with each other through BPDUs
+	> STP link cost
+		> Link cost = ceiling(reference bandwidth / link bandwidth) => Higher bandwidth links have lower cost (for all bw > ref bw, link cost=1 (min))
+		> Reference bandwidth
+			1) Short-mode cost: 20 gbps, default
+			2) Long-mode cost: 20 tbps, yeilds more precise costs (If you enable long-mode, make sure to enable it on all switches in LAN)
+		> Manually set link cost (not recommended)
+			#int f0/1
+			#spanning-tree cost <costValue>
+	> Root Path and Root Port calculation
+		> Root Path of a switch
+			> Out of all possible paths from switch to Root Bridge, the path with the least cumulative STP link cost
+			> Each switch has only 1 Root Path
+		> Root Port of a switch
+			> Switch's exit interface on its Root Path
+			> Each switch will have only 1 Root Port
+		> Root Bridge advertises a Root Path cost of 0 in it BPDUs to neighbours
+		> Switches are aware of costs of links to directly connected neighbours
+		> Switches, to the recieved path cost, add cost of link the BPDU was recieved on, finding out the path's cost from itself to Root Bridge
+		> Path with least cumulative STP link cost to Root Bridge is selected as the switch's Root Path, exit interface on Root Path as Root Port
+		> This information of Root - Path, Cost, and Port is shared further down with neighbours, thru BPDUs, for them to calculate their Root Path, etc
+		> This process continues till no new paths are recieved by switches in BPDUs => Root Path and Root Port are finalised
+		> If multiple equal STP link cost paths recieved by a switch
+			1) Path to uplinking switch with lower Switch ID/Bridge ID is Root Path
+			2) If equal Bridge ID, path going to port on uplinking switch with lower Port ID (Port Priority + Port Number) is Root Path
+			3) If equal Port ID, path going out of port on this switch with lower Port ID is Root Path
+	> Root Ports transition to forwarding, and switches start forwarding user traffic out Root Ports, along Root Paths, towards Root Bridge
+	> Task 3: Switches select their Designated Ports
+		Designated Ports
+			> Ports opposite to Root Ports on links are Designated Ports
+			> Designated Ports point away from the Root Bridge, eaxctly opposite of Root Ports
+			> All ports on the Root Bridge are Designated Ports
+	> At this point, Root Path links have been fully configured by STP, Root Ports on one side, Designated Ports on other side
+	> Task 4: Remaining links get configured as redundant
+		Non Root Path links are redundant and get blocked by STP for loop prevention
+		LOOP PREVENTION...
+		1) Ports at both ends of this redundant link become designated initially => No end-host traffic but not completely blocked yet
+		2) Switches at both ends send BPDUs to each other
+		3) Switch sending better BPDUs to other (lower Root Path Cost, else lower Bridge ID) will have its port on that redundant link remain as Designated Port
+		4) Other switch that sent worse BPDU will have its port on that redundant link transtion to Blocked Port (no outgoing traffic, incoming traffic allowed)
+		5) Now Designated Port switch continues sending its BPDUs to the Blocked switch
+		6) Blocked Port switch now only receives the superior BPDU, it does not send its BPDU or any traffic at all
+		Redundant links are setup such that if Root Path failure, links making up next least cost path transition to forwarding for failover, becomes new Root Path
+		FAILOVER...
+		7) If incase Designated Port/better BPDU switch loses it Root Path, it no more sends better BPDUs to other switch
+		8) Blocked Port switch, seeing worse BPDUs has its previously Blocked Port transition to Designated Port, starts sending its BPDUs to other switch
+		9) 1st switch, learns about 2nd switch's Root Path, since it is the best path available for 1st, 1st makes the advertised path as its Root Path
+		10) Designated Port on 1st transitions to Root Port, Blocked Port on 2nd transitions to Designated Port
+		11) Hence if any link on any Root Path goes down, STP will transition appropriate links from redundant/blocked to forwarding
+
+STP Versions (Open Standards)
+	1) 802.1D STP
+		> Original implementation of STP
+		> Slow convergence time - 50s
+		> 1 spanning tree instance for all VLANs in LAN
+	2) 802.1w Rapid STP
+		> RSTP
+		> Faster convergence time - 10s
+		> 1 spanning tree instance for all VLANs in LAN
+	3) 802.1s Multiple STP
+		> MSTP
+		> Faster convergence time - 10s
+		> Enables grouping and mapping VLANs into different spanning tree instances for load balancing
+
+Load balancing with 802.1s MSTP
+	> Users split into 20 VLANs at access layer
+	> 2 spanning tree instances (VLANs 1...10 grouped into one spanning tree instance, VLANs 11...20 into other)
+	> 1 redundant core-distribution switch pair
+	> CD1 Root Bridge for VLAN1...10 => traffic forwarded on link to CD1, blocked on link to CD2
+	> CD2 Root Bridge for VLAN11...20 => traffic forwarded on link to CD2, blocked on link to CD1
+	> Load is split into half and divided between CD switches => Both switches operate at same time
+	> In case of failure, entire load will shift to a single CD switch
+
+STP Versions (Cisco Proprietary)
+	1) Per VLAN Spanning Tree Plus (PVST+)
+		> Enhanced implementation of 802.1D
+		> Separate spanning tree instance for each VLAN
+		> Slow convergence time, 50s
+	2) Rapid Per VLAN Spanning Tree Plus (RPVST+)
+		> Enhanced implementation of 802.1w
+		> Separate spanning tree instance for each VLAN
+		> Faster convergence time, 10s
+	3) No cisco implementation for 802.1s => Cisco doesnt allow grouping multiple VLANs into single spanning tree instance
+	> Blocked Ports are called Alternate Ports in cisco's STP implementation
+
+Load balancing with PVST+/RPVST+
+	> Users split into 20 VLANs 1...20
+	> 20 spanning tree instances, each for a VLAN, since grouping is not allowed with cisco STPs
+	> For 1...10 spanning tree instances, respectively for 1...10 VLANs, CD1 makes Root Bridge
+	> For 11...20 spanning tree instances, respectively for 11...20 VLANs, CD2 makes Root Bridge
+	> Load is split into 2 halves, distributed equally between both CD switches
+
+Cisco STP version configuration on switch
+	> cmd: (config)#spanning-tree mode <"mst" | "pvst" | "rapid-pvst">
+	> pvst & rapid-pvst STP modes have exactly same configuration => Both modes are interchangable at any point, configuration will be preserved and will be in effect
+	> switching STP mode to or from mst will have you lose previous configuration
+
+Manupulating Root Bridge Election
+	> Since STP has all switches send their traffic towards Root Bridge, Root Bridge becomes the centre of LAN
+	> Only a pair of high-end core switches must be chosen as 1st and 2nd most preferred Root Bridge
+	> Root Bridge election is based on Bridge IDs
+		> Bridge ID = Bridge Priority value (admin configured, default 32768) + MAC address of switch
+		> Switch with least Bridge Priority value, if tie, least MAC address (oldest switch) is elected as Root Bridge
+	> Root Bridge election can be manupulated by explicitly setting Bridge Priority value
+	> Since Bridge Priority value is set to default for all, switch with lowest MAC address => Oldest switch => Least performative switch will be elected as Root Bridge
+	> Explicitly set Bridge priority value
+		Using keywords
+			> cmd: (config)#spanning-tree vlan 1 root primary	// internally sets the Bridge Priority value to 24576; 1st most preferred for Root Bridge
+			> cmd: (config)#spanning-tree vlan 1 root secondary	// internally sets the Bridge Priority value to 28672; 2nd most preferred for Root Bridge
+		Using exact values
+			> cmd: (config)#spanning-tree vlan 1 priority <priorityValue>
+			> Valid priority values: 0-61440
+			> Values must increment by 4096
+			> Values not multiples of 4096 or outside 0-61440 will return error message
+
+HSRP and STP alignment
+	> HSRP and STP configurations must align such that a directly connected router core-switch pair is selected as HSRP active and Root Bridge
+	> Advantage of having HSRP active router directly connected to Root Bridge is that traffic will travel through most direct path instead of having intermediary hops
+
+Portfast
+	> When a port first comes up, it remains blocked for 30s, so STP can confirm it wont form any loops, before transiting to forwarding
+	> Although only trunk ports (links connecting 2 switches) can be potentially loop forming, due to broadcast forwarding feature of switches
+	> Access ports (ports linked to end-hosts) are non loop forming (since end-hosts dont forward broadcast traffic) => They can transition to forwarding immediately
+	> Enabling Portfast on a port has it transtion to forwarding immediately, and have STP run checks after
+	> Portfast configuration
+		1) Interface level: (config-if)#spanning-tree portfast
+		2) Global-switch level: (config)#spanning-tree portfast default
+	> Portfast should only be enabled on ports that you are sure are non loop forming
+	> Portfast should typically only be enabled on access ports, trunk ports are typically connected to other switches, are potentially loop forming, shouldnt have portfast
+	> Portfast configuration on trunk ports require additional "trunk" keyword in cmd: (config-if)#spanning-tree portfast trunk // misconfiguration failsafe
+
+Portfast Edge
+	> Available on newer switches
+	> Portfast Edge enabled on port
+		> Port transitions to forwarding immediately (similar to Portfast)
+		> In case BPDU received on port, port loses its Portfast Edge status, becomes normal STP port (unlike Portfast+BPDUGuard, where port gets disabled/shutdown)
+
+BPDU Guard
+	> BPDU Guard enabled on a Portfast enabled port prevents unknown/mistake replacement of end-host by another switch => Loops => Storm occurs before STP can take it down
+	> BPDU Guard is used in conjunction with Portfast, BPDU Guard must always also be enabled along with Portfast
+	> BPDU Guard looks for incoming BPDUs on port with Portfast, if BPDU received => End-host been replaced with a switch, BPDU Guard error disables (shuts) port immediately
+	> Recover a BPDU error disabled port
+		> Manual
+			1) Correct issue on network
+			2) Shutdown interface
+			3) No shutdown interface
+		> Automatic error disable recovery
+			(config)#errdisable recovery cause bpduguard	// set automatic recovery on error disabled by cause bpdu guard
+			(config)#errdisable recovery interval 30	// set recovery attempt interval to 30s
+			> Not recommended, since untill network issue corrected, port will keep flapping
+
+Root Guard
+	> Prevents switches from unintentionally becoming the Root Bridge
+	> Configured on switches, on interfaces pointing away from Root Bridge
+	> Root Guard when enabled on a port, port transitions to 'root-inconsistent' and gets blocked if BPDUs superior than the current Root Bridge are received
+  	> Since Root Guard enabled on interfaces facing outwards from Root, external switch attempting to become Root will have its BPDUs get blocked on the recieving end of link
+	> Recovery: Automatic, nnce superior BPDUs stop coming in, port transitons through normal STP states
+
+BPDU Filter
+	> Can be enabled on 2 levels
+		> Global-switch level
+			> Applies to Portfast enabled intefaces, has similar effect to Portfast Edge
+			> Sends initial BPDUs, then stops sending
+			> If a BPDU is recieived, removes Portfast, disables BPDU Filtering, port acts as a normal STP port
+		> Local-interface level
+			> Port will not send BPDUs
+			> Port will ignore incoming BPDUs
+			> In effect, disabled STP
+			> Useful when switch connected to a legacy switch (low MAC address) with single link (non loop forming position)
+				legacy switches are not very configurable, and might cause issues with STP due to its low MAC address
+					STP can be disabled on port connected to legacy switch by enabling interface level BPDU filter at port
+
+Loop Guard
+	> Unidirectional link failure
+		> Cisco switches support GBIC/SFP modular ports
+		> These ports take copper or fiber transreceiver and are typically used for switch to switch connections
+		> Fiber cables have one strand for one-way data transfer, another for other-way data transfer
+		> If one strand fails => Unidirectional link failure
+		> Although interface will still show as up/up, but data transfer will only be possible in single direction
+	> One-way loop caused by unidirectional link failure
+		> On a Designated port - Blocked Port link, if unidirectional link from Designated to Blocked fails
+		> Designated can no more send BPDUs to Blocked port
+		> Blocked Port believes Designated Port has gone down
+		> Blocked Port transitions to Designated Port itself and starts sending BPDUs of its own
+		> Link has now transitoned to one-way forwarding instead of Blocked (blocked on other direction due to unidirectional link failure)
+		> One-way loop formed
+	> 2 solutions to solving unidirectional link problem
+		1) Loop Guard
+			> Spannig tree feature available in MST, PVST+, & RPVST+
+		2) UDLD (Unidirectional Link Detection) protocol
+			> Layer 2 protocol, not a part of spanning-tree
+	> Loop Guard
+		> BPDUs are expected to be received on Blocked and Root Ports
+		> Loop Guard takes effect only on non-Designated Ports (Blocked & Root)
+		> Loop Guard, even if enabled, does not affect Designated Ports at all, since they are not meant to receive BPDUs
+		> If BPDUs are not received on Blocked or Root Ports, it will be put in 'Loop-Inconsistent' state instead of transitioning to Designated Port => All traffic blocked
+		> Apart from unidirectional link failures, Loop Guard also protects from software failures and data corruption
+		> Recovery: Automatic, port transitons to normal STP port once BPDUs are received again
+		> Loop Guard configuration
+			> Local-interface level
+				(config-if)#spanning-tree guard loop
+			> Global-switch level
+				(config)#spanning-tree loopguard default	// enables loop guard on all interfaces, but takes no effect on Designated Ports
+		> Loop Guard and Root Guard
+			> Root Guard prevents undesired switches from becoming the Root Bridge
+			> Root Guard prevents Designated Ports from becomimng non-Designated Root Ports
+			> Loop Guard prevents unnidirectional link failures from causing loops
+			> Loop Guard prevents Non-Designated (Root & Blocked) Ports from becoming Designated Ports
+			> Root Guard and Loop Guard are exclusive features on ports, both cannot be enabled on same port at same time, enabling one will disable other on that port
+			> For using Root and Loop guard on same switch, make sure to enable on different port individually, global config will entirely disable to other
+
+STP, PVST+ vs RSTP, RPVST+, MST
+	> STP
+		Inbuilt: Single STP instance for all VLANs, timer-based convergence (slow)
+	> PVST+
+		Inbuilt: Separate STP instance for all VLANs, timer-based convergence (slow)
+		Aditional features: Uplinkfast & Backbonefast (faster convergence by bypassing timers), portfast, loop guard, root guard, etc
+	> RSTP
+		Inbuilt: Single STP instance for all VLANs, faster convergence equivalent to Uplinkfast & Backbonefast built-in
+	> RPVST+
+		Inbuilt: Separate STP instance for all VLANs, faster convergence equivalent to Uplinkfast & Backbonefast built-in
+		Additional features: same as PVST+
+	> MST
+		Inbuilt: VLANs can be grouped into STP instances, faster convergence equivalent to Uplinkfast & Backbonefast built-in
+
+Convergence Mechanisms
+	1) Timer based mechanism
+		> Used in STP, PVST+ (default on most cisco switches)
+		> Port goes through transitional states each for a certain time
+		1) Blocked: max. 20s
+		2) Listening: Transitional state, can send/receive BPDUs, does not forward traffic, does not learn mac addresses, 15s
+		3) Learning: Transitional state, learns mac addresses, does not forward traffic, 15s
+		4) Forwarding: Forwards traffic
+		> Total time to reach forwarding state (20+15+15) = 50s
+		> Portfast skips listening and learning states, port goes from Blocked to Forwarding within 20s (instead of 50s)
+	2) Proactive Proposal/Agreement Sync mechanism
+		> Used in RSTP, RPVST+, MSTP
+		> Can be enabled in PVST+ through enabling Uplinkfast, and Backbonefast
+		> Does not use timers, instead uses a proactive proposal/aggreement sync mechanism to rapidly build the spanning tree and respond to topology changes
+		> Switches actively negotiate directly with each other that ports can safely transition to forwarding state, without need for timers
+		> Convergence is achieved within few seconds across the topology
+
+STP Version Interoperability
+	> Switches may run different STP versions on the netwrok (not recommended)
+	> Newer STP versions (RPVST+, MST) are backwards compatible with older STP version
+	> Falling back to using older version for compatibility on a newer STP version running swicth happends on port level
+	> If a switch running a newer version finds neighbour switch running older version, it'll shift itself on older version only on corresponding port for compatibility
+	> On switching to older version, fast convergence will not be available on that link
+
+RPVST+ and Hub Interoperability
+	> Hubs
+		> Layer 1 device, mac-address unaware
+		> Received frame is flooded out all ports except one received on
+		> Hubs have no memory => they can handle only 1 frame at a time
+		> Hubs support only half duplex links => packets can only go in one direction at a time on links
+	> Switches
+		> Layer 2 devices => learn mac-addresses and send packets unicast
+		> Switches have memory => multiple frames are handled at same time
+		> Switches support full duplex links => 2-way packet transfer on links at same time
+	> Switches, with other switches form full duplex links => RPVST+ (fast convergence) available
+	> Switches, with hubs, form only half duplex links => RPVST+ (fast convergence) not available
+	> RSTP, RPVST+, & MSTP offer an additional port role than 802.1D, & PVST+, a 'Backup' port role in Discarding/Blocking state
+		> Alternate port (Non-designated), in Blocking state, on a switch is standby port for that switch's Root port
+		> Backup port, in Blocking state, on a switch is standby port for that switch's Designated port on a shared segment (i.e Designated & Backup port linked to hub)
+		> On using 802.1D, on using 'show' cmd on a switch, there will be 2 blocked ports shown, no way to distinguish which is standby of Root and which for Designated port
+		> On using RSTP, 'show' cmd, port w 'Alternate' role standby for Root port, port w 'Backup' role standby for Designated port (when Designated & Backup linked to hub)
+	
+
+		
+
+---------------------------------------------------------------------------------------STP_LAB---------------------------------------------------------------------------------------
+Config STP path cost method
+	Acc4(config)#spanning-tree pathcost method <"short" | "long">	// set pathcost method, must be changed on all switches if changed on one
+
+Verification STP path cost method
+	Acc4#show spanning-tree pathcost method				// show STP path cost method of the switch
+
+Config manually set STP path cost
+	Acc3(config)#interface f0/2
+	Acc3(config-if)#spanning-tree cost <costValue>
+
+Config STP Version
+	CD1(config)#spanning-tree mode <"mst" | "pvst" | "rapid-pvst">	// 3 modes: mst, pvst, rapid-pvst; pvst is default
+
+Verification STP
+	1. CD1#show spanning-tree summary				// show highly summarised STP configuration
+	2. CD1#show spanning-tree					// show spanning tree details for all vlans
+	3. CD1#show spanning-tree vlan <vlanNo>				// show spannig tree details for specified vlan
+		Output:	1) spanninng tree enabled protocol ieee			// actual protocol used is "cisco pvst ieee" not "ieee"
+			2) Root ID						// details of Root Bridge for spanning tree instance of this VLAN
+			3) Bridge ID						// details of this switch or spanning tree instance of this VLAN
+			4) Interface level STP details - status, role, link cost
+	4. CD1#show mac address-table					// path of traffic at layer 2 can be tracked (traffic for which mac is going through which port)
+
+Config explicit Bridge Priority value
+	Using keywords
+		CD1(config)#spanning-tree vlan 1 root primary		// internally sets Bridge Priority value to 24576; 1st most preferred for Root Bridge
+
+		CD2(config)#spanning-tree vlan 1 root secondary		// internally sets Bridge Priority value to 28672; 2nd most preferred for Root Bridge
+	Using exact values
+		CD1(config)#spanning-tree vlan 1 priority <priorityValue>
+
+Config aligned HSRP and STP along with load balancing
+	> End-users at access layer split into 2 vlans 10 & 20
+	> for VLAN 10: R1 HSRP active router, CD1 Root Bridge, R2 HSRP standby router, CD2 2nd preferrence for Root Bridge
+	> for VLAN 20: R2 HSRP active router, CD2 Root Bridge, R1 HSRP standby router, CD1 2nd preferrence for Root Bridge
+	> Using router on a stick for inter-VLAN routing, instead of router with separate interfaces
+
+	// R1 HSRP active for vlan 10, HSRP standby for vlan 20
+	R1(config)#int f0/1.10
+	R1(config)#encap dot1q 10
+	R1(config-if)#ip address 10.0.10.2 255.255.255.0
+	R1(config-if)#no shut
+	R1(config-if)#standby 1 10.0.10.1
+	R1(config-if)#standby priority 110
+	R1(config-if)#standby preempt
+	R1(config-if)#end
+	R1(config)#int f0/1.20
+	R1(config-if)#encap dot1q 20
+	R1(config-if)#ip addres 10.0.20.2 255.255.255.0
+	R1(config-if)#no shut
+	R1(config-if)#standby 2 10.0.20.1
+	R1(config-if)#standby priority 90
+	R1(config-if)#end
+	
+	// R2 HSRP active for vlan 20, HSRP standby for vlan 10
+	R2(config)#int f0/1.10
+	R2(config-if)#encap dot1q 10
+	R2(config-if)#ip address 10.0.10.3 255.255.255.0
+	R2(config-if)#no shut
+	R2(config-if)#standby 1 10.0.10.1
+	R2(config-if)#standby priority 90
+	R2(config-if)#end
+	R2(config)#int f0/1.20
+	R2(config-if)#encap dot1q 20
+	R2(config-if)#ip address 10.0.20.3 255.255.255.0
+	R2(config-if)#no shut
+	R2(config-if)#standby 2 10.0.20.1
+	R2(config-if)#standby priority 110
+	R2(config-if)#standby preempt
+	R2(config-if)#end
+
+	// CD1 (directly connected to R1) Root Bridge for vlan 10, 2nd preferred Root Bridge for vlan 20
+	CD1(config)#spanning-tree vlan 10 root primary
+	CD1(config)#spanning-tree vlan 20 root secondary
+
+	// CD2 (directly connected to R2) Root Bridge for vlan 20, 2nd preferred Root Bridge for vlan 10
+	CD2(config)#spanning-tree vlan 10 root secondary
+	CD2(config)#spanning-tree vlan 20 root primary
+
+Config Portfast
+	Config on access port
+	SW1(config-if)#spanning-tree portfast		// enables portfast on this, access, interface
+
+	Config globally
+	SW1(config)#spanning-tree portfast default	// enables portfast on all interfaces of the switch
+
+	Config on trunk port
+	SW1(config-if)#spanning-tree portfast trunk	// misconfiguration failsafe
+
+Config BPDU Guard along with Portfast
+	// local interface config
+	SW1(config)#int f0/1
+	SW1(config-if)#spanning-tree portfast
+	SW1(config-if)#spanning-tree bpduguard enable
+
+	// global switch config
+	SW1(config)#spanning-tree portfast bpduguard default
+
+Config automatic error disable recovery from being error disabled by BPDU Guard
+	SW1(config)#errdisable recovery cause bpduguard		// set automatic recovery on being error disabled by BPDU Guard
+	SW1(config)#errdisable recovery interval <seconds>	// set automatic recovery attempt interval <seconds>s
+
+Config Root Guard
+	SW1(config-if)#spanning-tree guard root			// receiving superior BPDUs than current Root will have this port blocked; auto recovery when BPDUs stop coming in
+
+Config BPDU Filter
+	> Global config
+		SW1(config)#spanning-tree portfast bpdufilter default	// enabled on Portfast enabled interfaces, similar effect to Portfast Edge
+
+	> Interface level config
+		SW1(config-if)#spanning-tree bpdufilter enable		// disables STP on this port
+
+Config Loop Guard
+	> Config at global-switch level (for all switchports)
+	SW1(config)#spanning-tree loopguard default
+
+	> Config at interface level
+	SW1(config-if)#spanning-tree guard loop
+
+Verification Portfast, BPDU Guard, Root Guard, BPDU Filter, Loop Guard
+	1. SW1#show spanning-tree summary				// shows which all additional STP features are GLOBALLY enabled/disabled
+	2. SW1#show spanning-tree interface <intfNo> detail		// shows which all additional STP features are LOCALLY enabled/disabled on this interface
+

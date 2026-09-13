@@ -1,0 +1,58 @@
+----------------------------------------------------------------------------------------DHCP-----------------------------------------------------------------------------------------
+Dynamic Host Configuration Protocol (DHCP):
+	> Client-server protocol that automatically provides a dhcp client (host) with its network configuration details from the dhcp server, instead of requiring manual config:
+		1) IP address
+		2) Subnet mask
+		3) Default gateway
+		4) DNS server address
+	> DHCP information obtaining process:
+		1) Client ----------------DHCP Discover (Broadcast)--------------> Server
+		2) Client <---------------DHCP Offer (Uni/Broadcast)-------------- Server
+		3) Client ----------------DHCP Request (Broadcast)---------------> Server
+		4) Client <----DHCP Ack {Network Config Info} (Uni/Broadcast)----- Server
+	> Advantages: centralized, automated, efficient
+	> DHCP Client Suitability:
+		> Suitable DHCP Clients: PCs <= Work fine even if IP address changes over time <= DHCP server asigns IP addresses dynamically
+		> Unsuitable DHCP Clients: Servers, Routers, Switches <= Require static IP addresses
+
+DHCP Server Configuration:
+	1) Default Gateway (cisco router) as DHCP Server
+		> The default gateway for DHCP clients is configured as their DHCP server
+		> DHCP clients send out DHCP requests as broadcasts => Hits default gateway (DHCP server) => DHCP server replies with DHCP info for DHCP clients
+	2) Default Gateway (cisco router) supports External DHCP Server
+		> The default gateway for DHCP clients is configured to support an external DHCP server on a different subnet
+			<= Default gateway is configured to forward broadcast DHCP requests out to corresponding DHCP server
+				<= Broadcast DHCP requests by DHCP clients are, by default, not forwarded out by the default gateway
+		> On the default gateway, the interface facing DHCP clients is configured with a helper-address (ip address of DHCP (+DNS) server for these DHCP clients)
+			=> Any broadcast DHCP requests from DHCP clients on this interface will be forwarded out to their DHCP server at this address
+
+Cisco Router as DHCP Client:
+	> For when router is a DHCP client for obtaining a dynamic public IP address from the ISP
+		> Could further NAT this to multiple private IP addresses
+	> Router is configured as DHCP client on interface level => Interface configured as DHCP client will obtain its IP address from DHCP server
+
+
+
+--------------------------------------------------------------------------------------DHCP_LAB---------------------------------------------------------------------------------------
+Config Default Gateway (cisco router) as DHCP Server
+	R1(config)#ip dhcp excluded-address 10.0.0.0 10.0.0.10		// specify ip address range to be excluded from assignment by DHCP server
+	R1(config)#ip dhcp pool <poolName>				// create a DHCP server with name <poolName>
+	R1(config-dhcp)#network <networkId> <subnetMask>		// specify network, clients belonging to this network will be allotted IPs from this network range
+	R1(config-dhcp)#default-router <defaultGatewayIP>		// specify default-gateway IP
+	R1(config-dhcp)#dns-server <dnsServerIP>			// specify dns-server IP
+
+Verification Default Gateway (cisco router) as DHCP Server
+	1. R1#show ip dhcp pool						// show dhcp details for all pools
+	2. R1#show ip dhcp binding					// show which IP-address allotted to which MAC-address
+
+Config Default Gateway (cisco router) to support External DHCP Server
+	R1(config)#interface f0/1					// interface facing DHCP clients
+	R1(config-if)#ip helper-address <DHCPserverAddress>		// config address of DHCP server; requests from these clients will be forwarded at this address
+
+Config Cisso Router as DHCP Client
+	R1(config)#interface f0/0					// interface to be configures as DHCP client
+	R1(config-if)#ip address dhcp					// obtain ip address through dhcp
+	R1(config-if)#no shutdown					// bring interface up
+
+Verification Cisco Router as DHCP Client
+	R1#show dhcp lease						// dhcp lease information

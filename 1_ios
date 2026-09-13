@@ -1,0 +1,37 @@
+-----------------------------------------------------------------------------------------IOS-----------------------------------------------------------------------------------------
+Cisco IOS shell prompt modes:
+CONFIG MODES		|PROMPT		|ALLOWENCE			|CMD TO USE MODE
+1. User-EXEC		|>		|-				|end (brings 1 level down => use multiple times untill desired level reached)
+2. Privileged-EXEC	|#		|viewing & debugging configs	|enable
+3. Global-Config	|(config)#	|all				|configure terminal
+
+
+
+-----------------------------------------------LAB----------------------------------------------------
+Show Running Configuration
+	R1#show running-config [brief] [| section <section>]	// use pipes (|) for filtering
+
+Show Interface details
+	R1#show interface [<intNo> | brief]			// interfaces's all details
+	R1#show ip interface [<intNo> | brief]			// interface's ip details
+
+Set Speed of Ethernet Interface
+	R1(config-if)#speed <megabits/s>			// affects physical speed of ethernet interface
+
+Set Clock-Rate of Serial Interface
+	R1(config-if)#clock rate <kilobits/s>			// affects physical clock-rate of serial interface
+
+Set Interface Bandwidth
+	R1(config-if)#bandwidth <megabits/s>			// affects software policies NOT physical speed
+
+Set Interface MTU
+	R1(config-if)#mtu <bytes>				// default: 1500 bytes; affects all packets out of interface
+
+Set Interface IP MTU
+	R1(config-if)#ip mtu <bytes>				// default: 1500 bytes; affects only ip packets out of interface
+
+Turn off all debugs
+	R1#undebug all						// turn off all debugs
+
+Select Range of Interfaces
+	SW1(config)#interface range FastEthernet 0/3 - 5	// selectes all interfaces from FE 0/3 through 0/5

@@ -1,0 +1,95 @@
+-----------------------------------------------------------------------------------------ACL-----------------------------------------------------------------------------------------
+ACLs work for both routers and switches
+
+ACL (Access Control List)
+	> Used to filter network traffic, based on layer 3 and layer 4 headers of packets, to enforce security boundaries and access policies
+	> ACLs are created globally, then applied to interfaces
+	> When a packet recieved at interface, if ACL applied on interface, based on the result of ACL, router/switch will permit or deny packet forward
+	> ACL = Series of ACEs
+	> ACE (Access Control Entry)
+		> Single permit/deny rule
+		> Each ACE written in separate line/command
+	> ACL types
+		1. Standard ACL
+			> Packet filtering only on the basis of source ip address
+			> If no wildcard mask for source ip address provided, default wildcard mask = 0.0.0.0 (=> subnet mask 255.255.255.255)
+		2. Extended ACL
+			> Packet filtering on the basis of
+				> layer 4 protocol
+				> source ip address
+				> source port number
+				> destination ip address
+				> destination port number
+			> Wildcard masks mandatory for source and destination ip addresses, no default wildcard masks
+	> ACL syntax types
+		1. Numbered ACL
+			> Older syntax
+			> 'access-list' command
+			> Numbered Standard ACL syntax
+				#access-list <ACLno> <action> <srcIP> <srcWildcard>
+			> Numbered Extended ACL syntax
+				#access-list <ACLno> <action> <layer4Protocol> <srcIP> <srcWildcard> <srcPort> <dstIP> <dstWildcard> <dstPort> <finalOptions>
+		2. Named ACL
+			> Newer, neater syntax
+			> 'ip access-list' command
+			> Named Standard ACL syntax
+				R1(config)#ip access-list standard <nameForACL>
+				R1(config-std-nacl)#<action> <srcIP> <srcWildcard>
+			> Named Extended ACL syntax
+				R1(config)#ip access-list extended <nameForACL>
+				R1(config-ext-nacl)#<action> <protocol> <srcIP> <srcWildcard> <srcPort> <dstIP> <dstWildcard> <destPort> <finalOptions>
+		> Parameters
+			> ACL NUMBER: 1-99 (std ACL) | 100-199 (extd ACL) | 1300-1999 (std ACL) | 2000-2699 (extd ACL)
+			> ACTION: "permit" | "deny" | "remark"		// "remark" to add description to the ace
+			> LAYER 4 PROTOCOL: "tcp" | "udp" | "ip" | "icmp" | "ospf" | ... (tcp/udp -> application traffic; ospf -> routing traffic; ip -> all traffic)
+
+			> SOURCE ADDRESS: <srcIP> <wildcard> | any | host <srcIP>
+			> SOURCE PORT *optional (defaults to any)*: eq | gt | neq | lt <portNumber>
+
+			> DESTINATION ADDRESS: <dstIP> <wildcard> | any | host <dstIP>
+			> DESTINATION PORT *optional (defaults to any)*: <"eq" | "gt" | "neq" | "lt"> <portNumber | portName>	//std ports:80<->http 443<->https 23<->telnet
+
+			> FINAL OPTIONS: "log" (for logging to console), other options for tcp flags, etc
+	> Access-Groups
+		> ACLs are applied to interfaces with the "access-group" command at the interface level
+		> At an interface, ACLs are applied in inbound and outbound directions
+		> Maximum of 1 ACL per direction per interface => Maximum of 2 ACLs at an interface
+		> Syntax: R1(config-if)#ip access-group <ACLno> <"in" | "out">		// set inbound or outbound ACL on interface
+	> ACE Preference Order within ACL
+		> ACE, higher in ACL/on top/enterered first, has higher preference
+		> ACL is read from top to bottom
+		> Each ACE has a sequence number (implicitly added in increasing order) (can also be explicitly added to manipulate ACE preference)
+		> Sequence number, implicitly added to ACEs, in increasing order, by increments of 10 (for adding ACEs out of sequence, by explicitly setting sequence numbers)
+		> Lower sequence number => Higher preference
+		> Manupulating ACE sequence/preference number
+			> Instering
+				R1(config-ext-nacl)#<seqenceNumber> <action> <protocol> <SOURCE> <DESTINATION>
+			> Deletion
+				R1(config-ett-nacl)#no <sequenceNumber>
+		> Specificity Order
+			> Specific ACEs to be placed above broarder ACEs
+				If broarder ACE placed above specific ACEs => Broarder ACE always gets executed first => Execution never reaches specific ACEs
+		
+
+
+
+
+---------------------------------------------------------------------------------------ACL_LAB---------------------------------------------------------------------------------------
+Config ACL (Creating ACL)
+	1. Standard ACL
+		R1(config)#access-list <ACLno> <action> <srcIP> <srcWildcard>		// for Standard ACL, ACL number = 1-99 or 1300-1999
+
+	2. Extended ACL
+		R1(config)#access-list <ACLno> <action> <layer4protocol> <srcIP> <srcWildcard> <srcPort> <dstIP> <dstWildcard> <dstPort> <finalOptions>
+			// for Extended ACL, ACL number = 100-199 or 2000-2699
+
+Verification ACL
+	1. R1#show access-lists			// for all ACLs, shows ACL type, ACEs within ACL, no of packets matched to each ACE
+	2. R1#show access-lists <ACLno>		// for the specified ACL, shows ACL type, ACEs within the ACL, no. of packets matched to each ACE
+
+Config Access-Group (Applying ACL to interface)
+	R1(config)#interface f0/0
+	R1(config-if)#ip access-group <ACLno> <"in" | "out">		// set inbound or outbound ACL on interface
+
+Verification Access-Group
+	1. R1#show interface f0/0 | include access list			// specifies the ACL numbers (or "not set") for both inbound and outbound on interface
